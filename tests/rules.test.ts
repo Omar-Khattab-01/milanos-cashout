@@ -14,13 +14,18 @@ const now = Date.now(),
   end = start + 7 * 3600000;
 const record = {
   id: "shift",
+  schemaVersion: 2,
   employeeId: "alex",
   employeeName: "Alex",
   start,
   end,
   rateCents: 1300,
-  deliveries: { e000: 1000, e001: 500, e002: 750 },
-  tips: { e000: 250 },
+  deliveries: {
+    e000: { amountCents: 1000, billNumber: "101" },
+    e001: { amountCents: 500, billNumber: "102" },
+    e002: { amountCents: 750, billNumber: "103" },
+  },
+  tips: { e000: { amountCents: 250, billNumber: "104" } },
   createdBy: "kiosk",
   createdAt: now,
 };
@@ -30,8 +35,8 @@ const correction = {
   start,
   end,
   rateCents: 1300,
-  deliveries: { e000: 1000 },
-  tips: { e000: 500 },
+  deliveries: { e000: { amountCents: 1000, billNumber: "101" } },
+  tips: { e000: { amountCents: 500, billNumber: "104" } },
   reason: "Correct tip",
   editedBy: "admin",
   editedAt: now,
@@ -84,7 +89,7 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
         await assertFails(
           set(ref(db("kiosk"), "cashouts/shift"), {
             ...record,
-            tips: { e000: amount },
+            tips: { e000: { amountCents: amount, billNumber: "104" } },
           }),
         );
     });
@@ -126,8 +131,63 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
         remove(ref(db("admin"), "cashouts/shift/corrections/x")),
       );
       expect(
-        (await get(ref(db("admin"), "cashouts/shift/tips/e000"))).val(),
+        (
+          await get(ref(db("admin"), "cashouts/shift/tips/e000/amountCents"))
+        ).val(),
       ).toBe(250);
+    });
+    it("validates online tips and cash-delivery fields server-side", async () => {
+      const cash = {
+        billNumber: "005",
+        billTotalCents: 4200,
+        cashCollectedCents: 5000,
+        changeGivenCents: 300,
+      };
+      await assertSucceeds(
+        set(ref(db("kiosk"), "cashouts/shift"), {
+          ...record,
+          onlineTips: { e000: { amountCents: 350, billNumber: "006" } },
+          startingCashCents: 5000,
+          cashDeliveries: { e000: cash },
+        }),
+      );
+      for (const payload of [
+        { ...record, id: "bad", onlineTips: { e000: { amountCents: 350 } } },
+        {
+          ...record,
+          id: "bad",
+          cashDeliveries: { e000: { ...cash, changeGivenCents: 900 } },
+        },
+        { ...record, id: "bad", startingCashCents: -1 },
+        { ...record, id: "bad", tips: { e000: 200 } },
+      ])
+        await assertFails(set(ref(db("kiosk"), "cashouts/bad"), payload));
+    });
+    it("allows a future end and keeps legacy records readable and correctable", async () => {
+      const start = Math.floor((Date.now() - 3600000) / 60000) * 60000;
+      await assertSucceeds(
+        set(ref(db("kiosk"), "cashouts/shift"), {
+          ...record,
+          start,
+          end: start + 2 * 3600000,
+        }),
+      );
+      await env.withSecurityRulesDisabled(async (c) =>
+        set(ref(c.database(), "cashouts/legacy"), {
+          ...record,
+          id: "legacy",
+          schemaVersion: null,
+          tips: { e000: 250 },
+          deliveries: { e000: 1000 },
+        }),
+      );
+      await assertSucceeds(
+        set(ref(db("admin"), "cashouts/legacy/corrections/x"), {
+          ...correction,
+          tips: { e000: 250 },
+          deliveries: { e000: 1000 },
+        }),
+      );
     });
     it("retains rate snapshot during correction and after settings change", async () => {
       await set(ref(db("kiosk"), "cashouts/shift"), record);

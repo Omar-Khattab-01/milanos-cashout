@@ -513,3 +513,46 @@ a {
     font: 700 18px monospace;
   }
 }
+.bill-input {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  align-items: end;
+}
+.cash-input {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  align-items: end;
+}
+.entry-input > div {
+  min-width: 0;
+}
+.date-options summary {
+  cursor: pointer;
+  color: var(--green);
+  font-size: 14px;
+}
+.date-options .fields {
+  margin-top: 16px;
+}
+@media (max-width: 650px) {
+  .bill-input,
+  .cash-input {
+    grid-template-columns: 1fr 1fr;
+  }
+  .cash-input button,
+  .bill-input button {
+    align-self: end;
+  }
+}
+.cash-input {
+  grid-template-columns: 1fr 1fr;
+}
+.cash-input button {
+  grid-column: 1/-1;
+}
+.entry-list li {
+  gap: 12px;
+}
+.entry-list li > span:first-child {
+  overflow-wrap: anywhere;
+}

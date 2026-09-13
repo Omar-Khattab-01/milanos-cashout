@@ -1,12 +1,25 @@
 export type Employee = { name: string; active: boolean };
+export type BillEntry = { amountCents: number; billNumber: string };
+export type Entry = number | BillEntry; // Historic records predate bill numbers.
+export type EntryList = Record<string, Entry>;
+export type CashDelivery = {
+  billNumber: string;
+  billTotalCents: number;
+  cashCollectedCents: number;
+  changeGivenCents: number;
+};
 export type Shift = {
+  schemaVersion?: 2;
   employeeId: string;
   employeeName: string;
   start: number;
   end: number;
   rateCents: number;
-  deliveries?: Record<string, number>;
-  tips?: Record<string, number>;
+  deliveries?: EntryList;
+  tips?: EntryList;
+  onlineTips?: EntryList;
+  startingCashCents?: number;
+  cashDeliveries?: Record<string, CashDelivery>;
 };
 export type Correction = Shift & {
   reason: string;
@@ -31,14 +44,59 @@ export function cents(value: string): number {
     throw new Error("Enter an amount between $0.01 and $1,000.00.");
   return n;
 }
-export const total = (items: Record<string, number> = {}) =>
-  Object.values(items).reduce((sum, n) => sum + n, 0);
+export const amountOf = (entry: Entry) =>
+  typeof entry === "number" ? entry : entry.amountCents;
+export const billOf = (entry: Entry) =>
+  typeof entry === "number" ? "Not recorded (legacy)" : entry.billNumber;
+export const total = (items: EntryList = {}) =>
+  Object.values(items).reduce<number>((sum, entry) => sum + amountOf(entry), 0);
+export function billNumber(value: string) {
+  const bill = value.trim();
+  if (!/^[A-Za-z0-9-]{1,40}$/.test(bill))
+    throw new Error(
+      "Enter a bill number using letters, numbers, or hyphens (up to 40 characters).",
+    );
+  return bill;
+}
+export const cashCents = (value: string) =>
+  /^0(?:\.0{1,2})?$/.test(value.trim()) ? 0 : cents(value);
+export function cashTotals(s: Shift) {
+  const entries = Object.values(s.cashDeliveries || {});
+  const startingCash = s.startingCashCents || 0;
+  const billTotals = entries.reduce((n, e) => n + e.billTotalCents, 0);
+  const received = entries.reduce((n, e) => n + e.cashCollectedCents, 0);
+  const change = entries.reduce((n, e) => n + e.changeGivenCents, 0);
+  const collected = received - change;
+  const tips = entries.reduce(
+    (n, e) => n + e.cashCollectedCents - e.changeGivenCents - e.billTotalCents,
+    0,
+  );
+  return {
+    startingCash,
+    billTotals,
+    received,
+    change,
+    collected,
+    tips,
+    owed: startingCash + collected,
+  };
+}
 export function totals(s: Shift) {
   const minutes = (s.end - s.start) / 60000;
   const wages = Math.round((minutes * s.rateCents) / 60);
   const deliveries = total(s.deliveries),
-    tips = total(s.tips);
-  return { minutes, wages, deliveries, tips, total: wages + deliveries + tips };
+    tips = total(s.tips),
+    onlineTips = total(s.onlineTips);
+  const cashTips = cashTotals(s).tips;
+  return {
+    minutes,
+    wages,
+    deliveries,
+    tips,
+    onlineTips,
+    cashTips,
+    total: wages + deliveries + tips + onlineTips + cashTips,
+  };
 }
 export function validateShift(s: Shift) {
   if (!s.employeeId || !s.employeeName.trim())
@@ -54,20 +112,63 @@ export function validateShift(s: Shift) {
     throw new Error(
       "Enter a shift longer than zero and no longer than 24 hours. Check the end date for overnight shifts.",
     );
-  if (s.end > Date.now() + 60000)
-    throw new Error("Your shift cannot end in the future.");
+
+  if (s.start > Date.now())
+    throw new Error("The shift start cannot be in the future.");
   if (!Number.isInteger(s.rateCents) || s.rateCents < 1 || s.rateCents > 100000)
     throw new Error("The hourly rate is invalid.");
-  for (const list of [s.deliveries, s.tips]) {
+  for (const list of [s.deliveries, s.tips, s.onlineTips]) {
     if (Object.keys(list || {}).length > 200)
       throw new Error("A maximum of 200 entries is supported per section.");
     if (
       Object.values(list || {}).some(
-        (n) => !Number.isInteger(n) || n < 1 || n > 100000,
+        (entry) =>
+          !Number.isInteger(amountOf(entry)) ||
+          amountOf(entry) < 1 ||
+          amountOf(entry) > 100000,
       )
     )
       throw new Error("An entry amount is invalid.");
+    for (const entry of Object.values(list || {}))
+      if (typeof entry !== "number") billNumber(entry.billNumber);
   }
+  if (
+    !Number.isInteger(s.startingCashCents ?? 0) ||
+    (s.startingCashCents ?? 0) < 0 ||
+    (s.startingCashCents ?? 0) > 100000
+  )
+    throw new Error("Starting cash must be between $0.00 and $1,000.00.");
+  const cashEntries = Object.values(s.cashDeliveries || {});
+  if (cashEntries.length > 200)
+    throw new Error("Maximum 200 cash deliveries per shift.");
+  for (const e of cashEntries) {
+    billNumber(e.billNumber);
+    if (
+      !Number.isInteger(e.billTotalCents) ||
+      e.billTotalCents <= 0 ||
+      e.billTotalCents > 100000 ||
+      !Number.isInteger(e.cashCollectedCents) ||
+      e.cashCollectedCents < 0 ||
+      e.cashCollectedCents > 100000 ||
+      !Number.isInteger(e.changeGivenCents) ||
+      e.changeGivenCents < 0 ||
+      e.changeGivenCents > 100000
+    )
+      throw new Error("Cash-delivery totals are invalid.");
+    if (e.cashCollectedCents - e.changeGivenCents < e.billTotalCents)
+      throw new Error("Cash received minus change must cover the bill total.");
+  }
+  const cashBills = new Set(cashEntries.map((e) => e.billNumber.toLowerCase()));
+  for (const e of Object.values(s.tips || {}))
+    if (typeof e !== "number" && cashBills.has(e.billNumber.toLowerCase()))
+      throw new Error(
+        "Cash-delivery tips are automatic. Remove the separate tip for that bill.",
+      );
+  if (
+    new Set(cashEntries.map((e) => e.billNumber.toLowerCase())).size !==
+    cashEntries.length
+  )
+    throw new Error("A bill can only be entered once in Cash deliveries.");
 }
 export function current(c: Cashout): Shift {
   const corrections = Object.values(c.corrections || {}).sort(

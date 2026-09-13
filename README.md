@@ -4,7 +4,13 @@ A store-PC web app for driver shift cash-outs. TypeScript + Vite, Firebase Authe
 
 ## Driver flow
 
-Select a name, enter start/end date and time (overnight shifts supported), add individual delivery fees and tips, then choose Done in both sections. Save & print waits for database confirmation before opening the browser print dialog. Cancelling printing does not cancel the saved record. Receipts show driver, dates/times, hours and pay totals, without itemized fees/tips. The 80 mm layout uses the store PC’s installed printer driver. Direct Epson integration is intentionally deferred.
+Select a name and enter start/end times at the end of the shift. Both dates default to today, with an optional date adjustment for overnight shifts. Future end times are allowed; shifts must still have a positive duration of at most 24 hours. Add individual delivery fees, tips, and online tips with bill numbers, then choose Done in each section. Space from an amount moves to the bill-number field; Enter adds the entry and returns focus to the amount. Save & print waits for database confirmation before opening the browser print dialog. Cancelling printing does not cancel the saved record. Receipts show driver, dates/times, hours, separate pay/tip totals, starting cash, cash received, change, and cash owed to the store, without itemized bill entries. The 80 mm layout uses the store PC’s installed printer driver. Direct Epson integration is intentionally deferred.
+
+### Cash handling
+
+Starting cash defaults to $0.00. Each cash-paid bill records its bill number, bill total, cash received **before change**, and change given (default zero). Calculated tip = cash received − change given − bill total. Underpaid bills and negative change are rejected. Cash tips are automatically included in total earnings; the same cash bill cannot also be added to the manual Tips section through the form.
+
+Earnings are paid separately. **Cash owed to store = starting cash + all cash received − all change given**, including cash tips. Wages, delivery fees, and tips are not deducted from cash owed. Example: $50 starting cash, a $42 bill, $50 received, and $3 change gives a $5 tip and $97 owed to the store. All source values are retained for admin inspection and correction.
 
 ## Admin flow
 
@@ -35,7 +41,8 @@ Keep the source repository private unless you deliberately choose otherwise. The
 - `admins/{uid}`: trusted admin allowlist, server/console managed only.
 - `devices/{uid}`: PCs authorized by an admin.
 - `cashouts/{uuid}`: id, employeeId/name, start/end epoch milliseconds, rateCents, createdBy, createdAt, and delivery/tip maps.
-- `deliveries` and `tips`: bounded keys `e000`–`e199` whose values are integer cents. Empty maps may be omitted by Realtime Database. Every individual value is validated by database rules; each amount is $0.01–$1,000.00.
+- `schemaVersion: 2` on new submissions. `deliveries`, `tips`, and `onlineTips` use bounded keys `e000`–`e199` with `{amountCents, billNumber}` values. Bill numbers preserve leading zeros and support letters, digits, and hyphens. Historical numeric entries remain readable and correctable, labeled as having no recorded bill number. New submissions require bill numbers.
+- `startingCashCents` defaults to zero. `cashDeliveries/{e000…e199}` contains `{billNumber, billTotalCents, cashCollectedCents, changeGivenCents}`. Cash tips and cash owed are derived, never counted as additional received cash. Empty maps may be omitted by Firebase. Rules validate monetary fields and require received cash less change to cover the bill total.
 - `cashouts/{uuid}/corrections/{uuid}`: full corrected shift snapshot plus reason, editedBy and editedAt. Append only.
 
 Duration is derived from timestamps, in minutes. Wages are rounded once to the nearest cent: `round(minutes × rateCents / 60)`. All fees and tips use integer cents. Totals are derived from the immutable source entries, avoiding inconsistent duplicated totals in storage. UI times use the store PC’s local timezone: configure that PC to the store’s timezone. The shift limit is 24 hours; equal or reversed times are rejected. There is no automatic break deduction.
@@ -52,4 +59,4 @@ History initially loads the most recent 500 submissions; Load all history retrie
 npx firebase emulators:exec --only database --project demo-milanos "npm test"
 ```
 
-Tests exercise overnight shifts, cent rounding, invalid inputs, rate snapshots, unpaired clients, privileged operations, malformed fee entries, original-record immutability and append-only corrections. CI runs the emulator suite on every push. No test cash-outs are written to production.
+Tests exercise overnight shifts, cent rounding, invalid inputs, rate snapshots, unpaired clients, privileged operations, malformed fee entries, original-record immutability and append-only corrections. CI runs the emulator suite on every push. No test cash-outs are written to production. The expanded suite also covers bill-linked entries, future end times, cash change, calculated tips, cash owed, and backward compatibility with historic records.

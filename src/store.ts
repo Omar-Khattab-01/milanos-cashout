@@ -1,0 +1,166 @@
+import { initializeApp } from "firebase/app";
+import {
+  getAuth,
+  signInAnonymously,
+  signInWithEmailAndPassword,
+  signOut,
+  setPersistence,
+  browserSessionPersistence,
+  browserLocalPersistence,
+} from "firebase/auth";
+import {
+  getDatabase,
+  ref,
+  get,
+  set,
+  update,
+  query,
+  orderByChild,
+  limitToLast,
+} from "firebase/database";
+import type { Cashout, Correction, Employee } from "./model";
+const env = import.meta.env;
+export const demo = !env.VITE_FIREBASE_API_KEY;
+const config = {
+  apiKey: env.VITE_FIREBASE_API_KEY,
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,
+  databaseURL: env.VITE_FIREBASE_DATABASE_URL,
+  projectId: env.VITE_FIREBASE_PROJECT_ID,
+  appId: env.VITE_FIREBASE_APP_ID,
+};
+const app = demo ? null : initializeApp(config);
+const adminApp = demo ? null : initializeApp(config, "admin");
+const kioskAuth = app ? getAuth(app) : null;
+const auth = adminApp ? getAuth(adminApp) : null;
+const kioskDb = app ? getDatabase(app) : null;
+const adminDb = adminApp ? getDatabase(adminApp) : null;
+let db = kioskDb;
+let demoAdmin = false;
+let employees: Record<string, Employee> = {
+  alex: { name: "Alex Morgan", active: true },
+  jamie: { name: "Jamie Wilson", active: true },
+  sam: { name: "Sam Taylor", active: true },
+};
+let rate = 1300;
+const records: Record<string, Cashout> = {};
+export const uid = () =>
+  auth?.currentUser?.uid || kioskAuth?.currentUser?.uid || "demo-driver";
+export async function init() {
+  if (auth && kioskAuth) {
+    await Promise.all([
+      setPersistence(auth, browserSessionPersistence),
+      setPersistence(kioskAuth, browserLocalPersistence),
+    ]);
+    await Promise.all([auth.authStateReady(), kioskAuth.authStateReady()]);
+    if (!kioskAuth.currentUser) await signInAnonymously(kioskAuth);
+    if (auth.currentUser) db = adminDb;
+  }
+}
+export async function authorizeDevice() {
+  if (adminDb && kioskAuth?.currentUser)
+    await set(ref(adminDb, `devices/${kioskAuth.currentUser.uid}`), true);
+}
+export async function isAdmin() {
+  if (!db) return demoAdmin;
+  if (!auth?.currentUser || auth.currentUser.isAnonymous) return false;
+  return (await get(ref(db, `admins/${uid()}`))).val() === true;
+}
+export async function login(email: string, password: string) {
+  if (!auth) {
+    demoAdmin = true;
+    return;
+  }
+  await signInWithEmailAndPassword(auth, email, password);
+  db = adminDb;
+  if (!(await isAdmin())) {
+    await logout();
+    throw new Error("This account does not have admin access.");
+  }
+}
+export async function logout() {
+  if (auth) {
+    await signOut(auth);
+    db = kioskDb;
+  }
+  demoAdmin = false;
+}
+export async function roster(): Promise<Record<string, Employee>> {
+  return db
+    ? (await get(ref(db, "employees"))).val() || {}
+    : structuredClone(employees);
+}
+export async function getRate(): Promise<number> {
+  if (!db) return rate;
+  const value = (await get(ref(db, "settings/rateCents"))).val();
+  if (!Number.isInteger(value) || value <= 0)
+    throw new Error("The administrator needs to set the hourly rate.");
+  return value;
+}
+export async function setRate(value: number) {
+  if (db) await set(ref(db, "settings/rateCents"), value);
+  else rate = value;
+}
+export async function saveEmployee(id: string, employee: Employee) {
+  if (db) await set(ref(db, `employees/${id}`), employee);
+  else employees[id] = employee;
+}
+function canonical(value: unknown): string {
+  if (value && typeof value === "object")
+    return (
+      "{" +
+      Object.entries(value)
+        .filter(
+          ([, v]) =>
+            v !== undefined &&
+            !(v && typeof v === "object" && !Object.keys(v).length),
+        )
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => JSON.stringify(k) + ":" + canonical(v))
+        .join(",") +
+      "}"
+    );
+  return JSON.stringify(value);
+}
+export async function save(record: Cashout) {
+  if (!db) {
+    records[record.id] = structuredClone(record);
+    return;
+  }
+  try {
+    await set(ref(db, `cashouts/${record.id}`), record);
+  } catch (error) {
+    const saved = (await get(ref(db, `cashouts/${record.id}`))).val();
+    if (!saved || canonical(saved) !== canonical(record)) throw error;
+  }
+}
+export async function history(): Promise<Cashout[]> {
+  const value = db
+    ? (
+        await get(
+          query(
+            ref(db, "cashouts"),
+            orderByChild("createdAt"),
+            limitToLast(500),
+          ),
+        )
+      ).val() || {}
+    : records;
+  return (Object.values(value) as Cashout[]).sort(
+    (a, b) => b.createdAt - a.createdAt,
+  );
+}
+export async function allHistory(): Promise<Cashout[]> {
+  const value = db ? (await get(ref(db, "cashouts"))).val() || {} : records;
+  return (Object.values(value) as Cashout[]).sort(
+    (a, b) => b.createdAt - a.createdAt,
+  );
+}
+export async function correct(id: string, correction: Correction) {
+  const key = crypto.randomUUID();
+  if (db)
+    await update(ref(db, `cashouts/${id}/corrections`), { [key]: correction });
+  else {
+    records[id].corrections ||= {};
+    records[id].corrections![key] = structuredClone(correction);
+  }
+}

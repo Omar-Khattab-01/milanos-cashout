@@ -1,0 +1,515 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap");
+:root {
+  font-family: "DM Sans", sans-serif;
+  color: #202824;
+  background: #f5f6f4;
+  font-synthesis: none;
+  font-size: 16px;
+  --red: #a82d28;
+  --green: #244e3e;
+  --line: #dfe4df;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input,
+select {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+a:focus-visible {
+  outline: 3px solid #d39d40;
+  outline-offset: 3px;
+}
+header {
+  background: white;
+  border-bottom: 1px solid var(--line);
+  padding: 20px 5%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+.monogram {
+  display: grid;
+  place-items: center;
+  background: var(--red);
+  color: white;
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  font: bold 30px Georgia;
+}
+.brand strong {
+  font:
+    600 24px "Outfit",
+    sans-serif;
+  letter-spacing: -0.8px;
+}
+.brand small {
+  display: block;
+  letter-spacing: 2.2px;
+  font-size: 10px;
+  margin-top: 2px;
+  color: #606c64;
+}
+nav {
+  display: flex;
+  gap: 8px;
+}
+button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 11px 17px;
+  background: white;
+  color: inherit;
+  font-weight: 600;
+  min-height: 44px;
+}
+nav button {
+  border: 0;
+  background: none;
+  color: #6c756f;
+}
+nav .active {
+  background: #f1f3ef;
+  color: var(--green);
+}
+main {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 38px 26px 60px;
+}
+.eyebrow {
+  font-size: 12px;
+  letter-spacing: 1.7px;
+  text-transform: uppercase;
+  color: var(--green);
+  font-weight: 700;
+}
+h1 {
+  font:
+    600 38px "Outfit",
+    sans-serif;
+  letter-spacing: -1.3px;
+  margin: 8px 0;
+}
+h2 {
+  font:
+    600 21px "Outfit",
+    sans-serif;
+  margin: 0 0 5px;
+}
+h3 {
+  font:
+    600 17px "Outfit",
+    sans-serif;
+  margin: 0;
+}
+.subtle {
+  color: #69756d;
+  line-height: 1.5;
+  font-size: 14px;
+}
+.intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 27px;
+  gap: 20px;
+}
+.pill {
+  font-size: 13px;
+  background: #e8eee7;
+  color: #365442;
+  padding: 9px 13px;
+  border-radius: 30px;
+  white-space: nowrap;
+}
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 26px;
+  align-items: start;
+}
+.card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  padding: 25px;
+  margin-bottom: 18px;
+}
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.step {
+  border: 1px solid #d6ded6;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  color: var(--green);
+  flex-shrink: 0;
+}
+.fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 17px;
+}
+.full {
+  grid-column: 1/-1;
+}
+label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+input,
+select {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #d4dbd5;
+  border-radius: 7px;
+  color: #233128;
+  background: white;
+  min-height: 46px;
+}
+input[type="datetime-local"] {
+  font-size: 14px;
+}
+input[type="checkbox"] {
+  width: 18px;
+  min-height: 18px;
+}
+input[type="number"] {
+  font-variant-numeric: tabular-nums;
+}
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+.entry-input {
+  margin-top: 18px;
+  display: flex;
+  gap: 10px;
+}
+.entry-input input {
+  min-width: 0;
+}
+.entry-list {
+  list-style: none;
+  margin: 14px 0;
+  padding: 0;
+  max-height: 230px;
+  overflow: auto;
+}
+.entry-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid #eef0ec;
+}
+.entry-list button {
+  padding: 5px 10px;
+  border: 0;
+  min-height: 36px;
+  color: #8d3431;
+  font-size: 13px;
+}
+.entry-footer {
+  border-top: 1px solid var(--line);
+  padding-top: 15px;
+  margin-top: 14px;
+}
+.primary {
+  background: var(--green);
+  color: white;
+  border-color: var(--green);
+}
+.red {
+  background: var(--red);
+  color: white;
+  border-color: var(--red);
+}
+.wide {
+  width: 100%;
+}
+.summary {
+  border-top: 4px solid var(--green);
+  position: sticky;
+  top: 22px;
+}
+.summary h2 {
+  margin-bottom: 24px;
+}
+.summary-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  margin: 17px 0;
+  font-size: 14px;
+}
+.summary-line strong {
+  font-variant-numeric: tabular-nums;
+}
+.grand {
+  border-top: 1px dashed #bcc9bd;
+  margin: 22px 0;
+  padding-top: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.grand strong {
+  font:
+    600 28px "Outfit",
+    sans-serif;
+}
+.notice {
+  background: #fff2d9;
+  color: #6c4f18;
+  padding: 11px 5%;
+  font-size: 13px;
+}
+.message {
+  padding: 13px 18px;
+  border-radius: 8px;
+  background: #fce8e6;
+  color: #8a2823;
+  margin-bottom: 20px;
+}
+.success {
+  background: #e7f0e7;
+  color: #224b34;
+}
+.hidden {
+  display: none !important;
+}
+.login {
+  max-width: 440px;
+  margin: 35px auto;
+}
+.login input {
+  margin-bottom: 20px;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 20px 0;
+}
+.toolbar select,
+.toolbar input {
+  width: auto;
+  max-width: 100%;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+th {
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: #6c756c;
+  padding: 14px 10px;
+  border-bottom: 1px solid var(--line);
+}
+td {
+  padding: 16px 10px;
+  border-bottom: 1px solid #e8ece7;
+}
+.table-wrap {
+  overflow: auto;
+}
+.empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: #69756d;
+}
+.receipt {
+  background: white;
+  max-width: 360px;
+  margin: 24px auto;
+  padding: 28px;
+  font-family: monospace;
+  box-shadow: 0 4px 20px #152e1610;
+  border: 1px solid #e2e5df;
+}
+.receipt h2,
+.receipt p {
+  text-align: center;
+}
+.receipt dl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 13px 5px;
+  font-size: 14px;
+}
+.receipt dd {
+  margin: 0;
+  text-align: right;
+}
+.receipt hr {
+  border: 0;
+  border-top: 1px dashed #555;
+  margin: 20px 0;
+}
+.detail {
+  max-width: 780px;
+  margin: auto;
+}
+.detail details {
+  border-top: 1px solid var(--line);
+  padding: 16px 0;
+}
+.detail summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.employee {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.avatar {
+  border-radius: 50%;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  background: #eff2eb;
+  color: var(--green);
+  font-weight: 600;
+}
+.print-note {
+  text-align: center;
+  margin-top: 16px;
+  font-size: 12px;
+  color: #6d776e;
+}
+.saved-heading {
+  text-align: center;
+}
+footer {
+  text-align: center;
+  color: #838d85;
+  font-size: 12px;
+  padding: 20px;
+}
+.split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+a {
+  color: var(--green);
+}
+@media (max-width: 800px) {
+  .layout,
+  .split {
+    grid-template-columns: 1fr;
+  }
+  .summary {
+    position: static;
+  }
+  main {
+    padding: 25px 16px;
+  }
+  .intro {
+    align-items: start;
+  }
+  .intro .pill {
+    display: none;
+  }
+  h1 {
+    font-size: 32px;
+  }
+  header {
+    padding: 16px;
+  }
+  .brand strong {
+    font-size: 22px;
+  }
+  nav button {
+    padding: 10px;
+  }
+  .fields {
+    grid-template-columns: 1fr;
+  }
+  .card {
+    padding: 19px;
+  }
+  .toolbar {
+    flex-direction: column;
+  }
+  .toolbar input,
+  .toolbar select {
+    width: 100%;
+  }
+}
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 3mm;
+  }
+  body {
+    background: white;
+  }
+  body > * {
+    display: none !important;
+  }
+  body > #print-root {
+    display: block !important;
+  }
+  #print-root .receipt {
+    width: 72mm;
+    max-width: none;
+    border: 0;
+    box-shadow: none;
+    padding: 2mm;
+    margin: 0;
+    font-size: 12px;
+  }
+  #print-root .receipt h2 {
+    font: 700 20px monospace;
+  }
+  #print-root .receipt dl {
+    font-size: 12px;
+  }
+  #print-root .receipt .grand strong {
+    font: 700 18px monospace;
+  }
+}

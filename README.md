@@ -8,7 +8,7 @@ Select a name, enter start/end date and time (overnight shifts supported), add i
 
 ## Admin flow
 
-Firebase email/password sign-in protects employee management, hourly-rate settings, full history, entry inspection, corrections and reprints. Admin rights are an explicit database allowlist, never a client-side PIN. Corrections append an immutable full snapshot with reason, editor and time; originals cannot be overwritten or deleted through the application. Old shifts and corrections retain the original hourly rate. Employee deactivation retains history. A PIN-only login needs a separately designed server-verified authentication mechanism; do not place a shared PIN in JavaScript.
+A four-digit admin PIN, verified by Firebase Authentication, protects employee management, hourly-rate settings, full history, entry inspection, corrections and reprints. Admin rights are an explicit database allowlist. The correct PIN is never embedded in the website. Corrections append an immutable full snapshot with reason, editor and time; originals cannot be overwritten or deleted through the application. Old shifts and corrections retain the original hourly rate. Employee deactivation retains history. The app converts the supplied PIN to a SHA-256 credential using the namespace `milanos-admin-pin-v1:` and submits it to Firebase’s password authentication for the existing admin account. This encoding meets the password-format requirements; a four-digit PIN still has only 10,000 possibilities. Firebase handles credential checking and throttling.
 
 ## Run locally
 
@@ -21,7 +21,7 @@ Copy `.env.example` to `.env.local` and supply the Firebase web app configuratio
 1. Create a Firebase project on Spark and a **Realtime Database** in locked mode. No Cloud Functions or billing upgrade is required.
 2. Register a web app and copy its configuration into `.env.local` (include the database URL).
 3. Enable Authentication → Email/Password and Anonymous. Add the deployed domain to Authentication’s authorized domains if needed.
-4. Create the administrator in Firebase Authentication. Under the database, set `/admins/ADMIN_AUTH_UID` to `true` using the Firebase console or a trusted administrative tool. No client can grant itself admin rights.
+4. Create the administrator in Firebase Authentication with the configured admin email and the hex SHA-256 of `milanos-admin-pin-v1:` plus the chosen PIN as its password. Under the database, set `/admins/ADMIN_AUTH_UID` to `true` using the Firebase console or a trusted administrative tool. No client can grant itself admin rights.
 5. Set `/settings/rateCents` to `1300`.
 6. Deploy `database.rules.json` before use. On the store PC, sign into Admin, open Employees, click **Authorize this store computer**, add real employees, then Lock. The PC keeps an anonymous device session; drivers do not sign in. Clearing browser site data requires pairing again. To revoke a PC, remove its UID under `/devices` in Firebase.
 7. Run `npm run build`. Deploy the `dist` folder through Firebase Hosting or GitHub Pages. Firebase Hosting configuration is supplied; use `npx firebase deploy --only database,hosting --project YOUR_PROJECT_ID` after authenticating as its owner.

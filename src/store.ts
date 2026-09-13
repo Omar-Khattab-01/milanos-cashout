@@ -65,12 +65,37 @@ export async function isAdmin() {
   if (!auth?.currentUser || auth.currentUser.isAnonymous) return false;
   return (await get(ref(db, `admins/${uid()}`))).val() === true;
 }
-export async function login(email: string, password: string) {
+export async function login(pin: string) {
   if (!auth) {
     demoAdmin = true;
     return;
   }
-  await signInWithEmailAndPassword(auth, email, password);
+  if (!/^\d{4}$/.test(pin)) throw new Error("Enter your four-digit admin PIN.");
+  // Firebase verifies the credential. This encoding adapts a PIN to its password
+  // format; it does not increase the strength of a four-digit PIN.
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode("milanos-admin-pin-v1:" + pin),
+  );
+  const password = Array.from(new Uint8Array(digest), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+  try {
+    await signInWithEmailAndPassword(
+      auth,
+      "omar.lkhattab2000@gmail.com",
+      password,
+    );
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "auth/too-many-requests")
+      throw new Error("Too many attempts. Please wait and try again.");
+    if (code === "auth/network-request-failed")
+      throw new Error(
+        "Unable to connect. Check your internet connection and try again.",
+      );
+    throw new Error("Incorrect admin PIN. Please try again.");
+  }
   db = adminDb;
   if (!(await isAdmin())) {
     await logout();

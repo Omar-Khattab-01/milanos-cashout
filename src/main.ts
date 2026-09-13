@@ -98,7 +98,7 @@ function cashout() {
     )}</select>${!Object.keys(roster).length ? '<p class="subtle">An admin needs to add employees first.</p>' : ""}</div><div><label for="start">Shift started</label><input id="start" type="datetime-local" data-draft="start" value="${esc(draft.start)}"><button data-action="now" data-field="start" style="margin-top:8px">Start now</button></div><div><label for="end">Shift ended</label><input id="end" type="datetime-local" data-draft="end" value="${esc(draft.end)}"><button data-action="now" data-field="end" style="margin-top:8px">End now</button></div></div><p class="subtle">Times use this device’s local time. For an overnight shift, choose the following day as the end date.</p></section>${entrySection("deliveries", "Delivery fees", 2)}${entrySection("tips", "Tips", 3)}${editId ? `<section class="card"><label for="reason">Reason for correction</label><input id="reason" data-reason value="${esc(reason)}" maxlength="500" placeholder="Explain what changed and why"><p class="subtle">The original shift and every correction are retained.</p></section>` : ""}</div><aside class="card summary"><div class="eyebrow">Ready when you are</div><h2 style="margin-top:9px">Shift summary</h2><div class="summary-line"><span class="subtle">Driver</span><strong>${esc(s.employeeName || "Not selected")}</strong></div><div class="summary-line"><span class="subtle">Time worked</span><strong>${valid ? hours(t.minutes) : "—"}</strong></div><div class="summary-line"><span class="subtle">Hourly pay</span><strong>${valid ? money(t.wages) : "—"}</strong></div><div class="summary-line"><span class="subtle">Delivery fees</span><strong>${money(t.deliveries)}</strong></div><div class="summary-line"><span class="subtle">Tips</span><strong>${money(t.tips)}</strong></div><div class="grand"><span>Total pay</span><strong>${money((valid ? t.wages : 0) + t.deliveries + t.tips)}</strong></div><button class="red wide" data-action="save" ${busy ? "disabled" : ""}>${busy ? "Saving…" : editId ? "Save correction" : "Save & print cash-out"}</button><p class="print-note">${store.demo ? "Demo records stay in memory only." : "Your cash-out is saved before printing."}<br>Only totals appear on your receipt.</p>${editId ? '<button class="wide" data-action="cancel-edit">Cancel correction</button>' : ""}</aside></div>`;
 }
 function loginView() {
-  return `<section class="card login"><div class="eyebrow">Management</div><h1>Admin access</h1><p class="subtle">Manage employees, review cash-outs, and reprint receipts.</p>${store.demo ? '<p class="message">Demo only. Admin access here is a preview.</p><button class="primary wide" data-action="demo-login">Explore demo admin</button>' : '<form data-form="login"><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required><button class="primary wide" type="submit">Sign in</button></form>'}</section>`;
+  return `<section class="card login"><div class="eyebrow">Management</div><h1>Admin access</h1><p class="subtle">Manage employees, review cash-outs, and reprint receipts.</p>${store.demo ? '<p class="message">Demo only. Admin access here is a preview.</p><button class="primary wide" data-action="demo-login">Explore demo admin</button>' : '<form data-form="login"><label for="pin">Admin PIN</label><input id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="off" placeholder="Enter 4-digit PIN" required><button class="primary wide" type="submit">Unlock admin</button></form>'}</section>`;
 }
 function historyView() {
   const filtered = records.filter(
@@ -232,10 +232,7 @@ root.addEventListener("submit", (e) => {
         break;
       }
       case "login":
-        await store.login(
-          String(data.get("email")),
-          String(data.get("password")),
-        );
+        await store.login(String(data.get("pin")));
         admin = true;
         roster = await store.roster();
         try {
@@ -375,7 +372,7 @@ root.addEventListener("click", (e) => {
         view = "cashout";
         break;
       case "demo-login":
-        await store.login("", "");
+        await store.login("");
         admin = true;
         roster = await store.roster();
         try {

@@ -104,6 +104,10 @@ function loginView() {
   return `<section class="card login"><div class="eyebrow">Protected section</div><h1>${names[loginTarget]}</h1><p class="subtle">Enter the admin PIN to open this section.</p>${store.demo ? '<p class="message">Demo admin preview.</p><button class="primary wide" data-action="demo-login">Explore this section</button>' : '<form data-form="login"><label for="pin">Admin PIN</label><input id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="off" placeholder="Enter 4-digit PIN" required autofocus><button class="primary wide" type="submit">Unlock</button></form>'}</section>`;
 }
 
+function deviceLoginView() {
+  return `<section class="card login"><div class="eyebrow">Store computer setup</div><h1>Unlock driver cash-outs</h1><p class="subtle">Enter the admin PIN once to authorize this computer. The cash-out page will stay unlocked in this browser.</p>${store.demo ? '<button class="primary wide" data-action="demo-device-login">Authorize demo computer</button>' : '<form data-form="device-login"><label for="device-pin">Admin PIN</label><input id="device-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="off" placeholder="Enter 4-digit PIN" required autofocus><button class="primary wide" type="submit">Authorize this computer</button></form>'}</section>`;
+}
+
 function historyView() {
   const filtered = records.filter((r) => (!filterEmployee || current(r).employeeId === filterEmployee) && (!filterDate || localInput(current(r).start).slice(0, 10) === filterDate));
   return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Cash-out history</h1><span class="subtle">Review, correct, reprint, or delete saved shifts.</span></div><button data-action="load-all">Load all history</button></div><div class="toolbar"><select id="filter-employee"><option value="">All employees</option>${Object.entries(roster).map(([id, e]) => `<option value="${esc(id)}" ${filterEmployee === id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select><input id="filter-date" type="date" value="${filterDate}"><button data-action="clear-filters">Clear filters</button></div><section class="card table-wrap"><p class="subtle">${records.length} loaded · ${filtered.length} matching shifts.</p>${filtered.length ? `<table><thead><tr><th>Driver / date</th><th>Hours</th><th>Employee cost</th><th>Cash owed</th><th></th></tr></thead><tbody>${filtered.map((r) => { const s = current(r), t = totals(s); return `<tr><td><strong>${esc(s.employeeName)}</strong><br><span class="subtle">${date(s.start)}${r.corrections ? " · Corrected" : ""}</span></td><td>${hours(t.minutes)}</td><td><strong>${money(t.total)}</strong></td><td>${money(cashTotals(s).owed)}</td><td><button data-action="detail" data-id="${r.id}">View</button></td></tr>`; }).join("")}</tbody></table>` : '<div class="empty">No cash-outs found.</div>'}</section>`;
@@ -135,7 +139,7 @@ function detailView() {
 
 function render() {
   const datesOpen = root.querySelector<HTMLDetailsElement>(".date-options")?.open;
-  root.innerHTML = `<header><div class="brand"><span class="monogram">M</span><div><strong>milano’s</strong><small>PIZZERIA · DRIVER DESK</small></div></div><nav aria-label="Main navigation"><button data-action="cashout-nav" class="${view === "cashout" ? "active" : ""}">Cash-out</button><button data-action="protected-nav" data-view="history" class="${view === "history" || view === "detail" ? "active" : ""}">History</button><button data-action="protected-nav" data-view="employees" class="${view === "employees" ? "active" : ""}">Employees</button><button data-action="protected-nav" data-view="expenses" class="${view === "expenses" ? "active" : ""}">Expenses</button></nav></header>${store.demo ? '<div class="notice">Preview mode · Records are temporary and cleared when you reload.</div>' : ""}<main>${message ? `<div role="alert" class="message ${success ? "success" : ""}">${esc(message)}</div>` : ""}${view === "cashout" ? cashout() : view === "login" ? loginView() : view === "history" && admin ? historyView() : view === "employees" && admin ? employeeView() : view === "expenses" && admin ? expensesView() : view === "detail" && admin ? detailView() : view === "saved" && selected ? `<div class="saved-heading"><span class="pill">${store.demo ? "Demo saved" : "Cash-out saved"}</span><h1>You’re all set.</h1><p class="subtle">Your shift is saved.</p></div>${receipt(selected)}<div class="row" style="justify-content:center"><button data-action="print">Print receipt again</button><button class="primary" data-action="new">Next driver</button></div>` : ""}</main><footer>Milano’s Pizzeria · Driver cash-outs</footer>`;
+  root.innerHTML = `<header><div class="brand"><span class="monogram">M</span><div><strong>milano’s</strong><small>PIZZERIA · DRIVER DESK</small></div></div><nav aria-label="Main navigation"><button data-action="cashout-nav" class="${view === "cashout" || view === "device-login" ? "active" : ""}">Cash-out</button><button data-action="protected-nav" data-view="history" class="${view === "history" || view === "detail" ? "active" : ""}">History</button><button data-action="protected-nav" data-view="employees" class="${view === "employees" ? "active" : ""}">Employees</button><button data-action="protected-nav" data-view="expenses" class="${view === "expenses" ? "active" : ""}">Expenses</button></nav></header>${store.demo ? '<div class="notice">Preview mode · Records are temporary and cleared when you reload.</div>' : ""}<main>${message ? `<div role="alert" class="message ${success ? "success" : ""}">${esc(message)}</div>` : ""}${view === "cashout" ? cashout() : view === "device-login" ? deviceLoginView() : view === "login" ? loginView() : view === "history" && admin ? historyView() : view === "employees" && admin ? employeeView() : view === "expenses" && admin ? expensesView() : view === "detail" && admin ? detailView() : view === "saved" && selected ? `<div class="saved-heading"><span class="pill">${store.demo ? "Demo saved" : "Cash-out saved"}</span><h1>You’re all set.</h1><p class="subtle">Your shift is saved.</p></div>${receipt(selected)}<div class="row" style="justify-content:center"><button data-action="print">Print receipt again</button><button class="primary" data-action="new">Next driver</button></div>` : ""}</main><footer>Milano’s Pizzeria · Driver cash-outs</footer>`;
   if (datesOpen) root.querySelector<HTMLDetailsElement>(".date-options")!.open = true;
   if (busy) root.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
 }
@@ -233,6 +237,15 @@ root.addEventListener("submit", (event) => {
         entryInputs.cashDeliveries = {}; pending = null; break;
       }
       case "login": await store.login(String(data.get("pin"))); await afterLogin(); break;
+      case "device-login":
+        await store.login(String(data.get("pin")));
+        await store.authorizeDevice();
+        await store.logout();
+        [roster, rate] = await Promise.all([store.roster(), store.getRate()]);
+        view = "cashout";
+        message = "This computer is authorized. Driver cash-outs will stay unlocked here.";
+        success = true;
+        break;
       case "employee": {
         const name = String(data.get("name")).trim(), phone = String(data.get("phone")).trim();
         if (!name) throw new Error("Enter an employee name.");
@@ -276,7 +289,12 @@ root.addEventListener("click", (event) => {
       case "cashout-nav":
         if (admin) await store.logout();
         admin = false; editId = ""; selected = null; view = "cashout";
-        [roster, rate] = await Promise.all([store.roster(), store.getRate()]); break;
+        try {
+          [roster, rate] = await Promise.all([store.roster(), store.getRate()]);
+        } catch {
+          view = "device-login";
+        }
+        break;
       case "back-history": records = await store.history(); view = "history"; break;
       case "authorize-device": await store.authorizeDevice(); message = "This store computer is authorized for driver cash-outs."; success = true; break;
       case "done": {
@@ -301,6 +319,7 @@ root.addEventListener("click", (event) => {
       case "print": print(); break;
       case "new": selected = null; draft = fresh(); confirmed = emptyConfirmed(); [roster, rate] = await Promise.all([store.roster(), store.getRate()]); view = "cashout"; break;
       case "demo-login": await store.login(""); await afterLogin(); break;
+      case "demo-device-login": view = "cashout"; message = "Demo computer authorized."; success = true; break;
       case "delete-employee": {
         const id = button.dataset.id!;
         if (!window.confirm(`Delete ${roster[id].name}? Their saved history will remain.`)) return;
@@ -329,7 +348,11 @@ root.addEventListener("click", (event) => {
 root.innerHTML = "<main><h1>Milano’s driver desk</h1><p>Loading…</p></main>";
 void run(async () => {
   await store.init(); admin = false;
-  [roster, rate] = await Promise.all([store.roster(), store.getRate()]);
+  try {
+    [roster, rate] = await Promise.all([store.roster(), store.getRate()]);
+  } catch {
+    view = "device-login";
+  }
 });
 
 setInterval(() => {

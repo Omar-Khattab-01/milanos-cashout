@@ -75,6 +75,16 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       );
       await assertFails(get(ref(db("stranger"), "employees")));
     });
+    it("lets an admin authorize a new store computer once", async () => {
+      await assertFails(get(ref(db("new-computer"), "employees")));
+      await assertSucceeds(
+        set(ref(db("admin"), "devices/new-computer"), true),
+      );
+      await assertSucceeds(get(ref(db("new-computer"), "employees")));
+      await assertFails(
+        set(ref(db("new-computer"), "devices/another-computer"), true),
+      );
+    });
     it("protects history and settings from drivers", async () => {
       await assertFails(get(ref(db("kiosk"), "cashouts")));
       await assertFails(set(ref(db("kiosk"), "settings/rateCents"), 900));

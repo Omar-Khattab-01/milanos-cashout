@@ -13,12 +13,19 @@ import {
   ref,
   get,
   set,
+  remove,
   update,
   query,
   orderByChild,
   limitToLast,
 } from "firebase/database";
-import type { Cashout, Correction, Employee } from "./model";
+import type {
+  Cashout,
+  Company,
+  Correction,
+  Employee,
+  Expense,
+} from "./model";
 const env = import.meta.env;
 export const demo = !env.VITE_FIREBASE_API_KEY;
 const config = {
@@ -37,12 +44,16 @@ const adminDb = adminApp ? getDatabase(adminApp) : null;
 let db = kioskDb;
 let demoAdmin = false;
 let employees: Record<string, Employee> = {
-  alex: { name: "Alex Morgan", active: true },
-  jamie: { name: "Jamie Wilson", active: true },
-  sam: { name: "Sam Taylor", active: true },
+  alex: { name: "Alex Morgan", phone: "416-555-0101" },
+  jamie: { name: "Jamie Wilson", phone: "416-555-0102" },
+  sam: { name: "Sam Taylor", phone: "416-555-0103" },
 };
 let rate = 1300;
 const records: Record<string, Cashout> = {};
+let companies: Record<string, Company> = {
+  supplier: { name: "Sample Food Supplier" },
+};
+const expenseRecords: Record<string, Expense> = {};
 export const uid = () =>
   auth?.currentUser?.uid || kioskAuth?.currentUser?.uid || "demo-driver";
 export async function init() {
@@ -53,7 +64,9 @@ export async function init() {
     ]);
     await Promise.all([auth.authStateReady(), kioskAuth.authStateReady()]);
     if (!kioskAuth.currentUser) await signInAnonymously(kioskAuth);
-    if (auth.currentUser) db = adminDb;
+    // Protected sections require a fresh PIN after every visit.
+    if (auth.currentUser) await signOut(auth);
+    db = kioskDb;
   }
 }
 export async function authorizeDevice() {
@@ -129,6 +142,10 @@ export async function saveEmployee(id: string, employee: Employee) {
   if (db) await set(ref(db, `employees/${id}`), employee);
   else employees[id] = employee;
 }
+export async function deleteEmployee(id: string) {
+  if (db) await remove(ref(db, `employees/${id}`));
+  else delete employees[id];
+}
 function canonical(value: unknown): string {
   if (value && typeof value === "object")
     return (
@@ -188,4 +205,33 @@ export async function correct(id: string, correction: Correction) {
     records[id].corrections ||= {};
     records[id].corrections![key] = structuredClone(correction);
   }
+}
+export async function deleteShift(id: string) {
+  if (db) await remove(ref(db, `cashouts/${id}`));
+  else delete records[id];
+}
+export async function getCompanies(): Promise<Record<string, Company>> {
+  return db
+    ? (await get(ref(db, "companies"))).val() || {}
+    : structuredClone(companies);
+}
+export async function saveCompany(id: string, company: Company) {
+  if (db) await set(ref(db, `companies/${id}`), company);
+  else companies[id] = company;
+}
+export async function getExpenses(): Promise<Expense[]> {
+  const value = db
+    ? (await get(ref(db, "expenses"))).val() || {}
+    : expenseRecords;
+  return (Object.values(value) as Expense[]).sort((a, b) =>
+    b.date.localeCompare(a.date),
+  );
+}
+export async function saveExpense(expense: Expense) {
+  if (db) await set(ref(db, `expenses/${expense.id}`), expense);
+  else expenseRecords[expense.id] = structuredClone(expense);
+}
+export async function deleteExpense(id: string) {
+  if (db) await remove(ref(db, `expenses/${id}`));
+  else delete expenseRecords[id];
 }

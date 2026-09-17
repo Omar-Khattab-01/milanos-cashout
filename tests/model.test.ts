@@ -130,7 +130,7 @@ describe("bill-linked cash-out entries", () => {
       total: 13100,
     });
   });
-  it("rejects underpayment, excessive change and duplicate manual cash tips", () => {
+  it("keeps old cash records valid and allows split-payment bill numbers", () => {
     const cash = {
       billNumber: "001",
       billTotalCents: 4200,
@@ -143,9 +143,21 @@ describe("bill-linked cash-out entries", () => {
     expect(() =>
       validateShift({
         ...shift,
-        cashDeliveries: { e000: { ...cash, changeGivenCents: 300 } },
+        schemaVersion: 3,
+        cashDeliveries: {
+          e000: { billNumber: "001", billTotalCents: 4200 },
+        },
         tips: { e000: { amountCents: 500, billNumber: "001" } },
       }),
-    ).toThrow(/automatic/);
+    ).not.toThrow();
+    expect(
+      cashTotals({
+        ...shift,
+        startingCashCents: 5000,
+        cashDeliveries: {
+          e000: { billNumber: "001", billTotalCents: 4200 },
+        },
+      }).owed,
+    ).toBe(9200);
   });
 });

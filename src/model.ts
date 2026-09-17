@@ -1,15 +1,16 @@
-export type Employee = { name: string; active: boolean };
+export type Employee = { name: string; phone?: string; active?: boolean };
 export type BillEntry = { amountCents: number; billNumber: string };
 export type Entry = number | BillEntry; // Historic records predate bill numbers.
 export type EntryList = Record<string, Entry>;
 export type CashDelivery = {
   billNumber: string;
   billTotalCents: number;
-  cashCollectedCents: number;
-  changeGivenCents: number;
+  // Kept optional so older cash-outs can still be displayed and corrected.
+  cashCollectedCents?: number;
+  changeGivenCents?: number;
 };
 export type Shift = {
-  schemaVersion?: 2;
+  schemaVersion?: 2 | 3;
   employeeId: string;
   employeeName: string;
   start: number;
@@ -20,6 +21,16 @@ export type Shift = {
   onlineTips?: EntryList;
   startingCashCents?: number;
   cashDeliveries?: Record<string, CashDelivery>;
+};
+export type Company = { name: string };
+export type Expense = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  date: string;
+  amountCents: number;
+  createdAt: number;
+  createdBy: string;
 };
 export type Correction = Shift & {
   reason: string;
@@ -64,11 +75,18 @@ export function cashTotals(s: Shift) {
   const entries = Object.values(s.cashDeliveries || {});
   const startingCash = s.startingCashCents || 0;
   const billTotals = entries.reduce((n, e) => n + e.billTotalCents, 0);
-  const received = entries.reduce((n, e) => n + e.cashCollectedCents, 0);
-  const change = entries.reduce((n, e) => n + e.changeGivenCents, 0);
+  const received = entries.reduce(
+    (n, e) => n + (e.cashCollectedCents ?? e.billTotalCents),
+    0,
+  );
+  const change = entries.reduce((n, e) => n + (e.changeGivenCents ?? 0), 0);
   const collected = received - change;
   const tips = entries.reduce(
-    (n, e) => n + e.cashCollectedCents - e.changeGivenCents - e.billTotalCents,
+    (n, e) =>
+      n +
+      (e.cashCollectedCents === undefined
+        ? 0
+        : e.cashCollectedCents - (e.changeGivenCents ?? 0) - e.billTotalCents),
     0,
   );
   return {
@@ -146,24 +164,26 @@ export function validateShift(s: Shift) {
     if (
       !Number.isInteger(e.billTotalCents) ||
       e.billTotalCents <= 0 ||
-      e.billTotalCents > 100000 ||
-      !Number.isInteger(e.cashCollectedCents) ||
-      e.cashCollectedCents < 0 ||
-      e.cashCollectedCents > 100000 ||
-      !Number.isInteger(e.changeGivenCents) ||
-      e.changeGivenCents < 0 ||
-      e.changeGivenCents > 100000
+      e.billTotalCents > 100000
     )
       throw new Error("Cash-delivery totals are invalid.");
-    if (e.cashCollectedCents - e.changeGivenCents < e.billTotalCents)
+    const historic = e.cashCollectedCents !== undefined;
+    if (
+      historic &&
+      (!Number.isInteger(e.cashCollectedCents) ||
+        e.cashCollectedCents! < 0 ||
+        e.cashCollectedCents! > 100000 ||
+        !Number.isInteger(e.changeGivenCents) ||
+        e.changeGivenCents! < 0 ||
+        e.changeGivenCents! > 100000)
+    )
+      throw new Error("Cash-delivery totals are invalid.");
+    if (
+      historic &&
+      e.cashCollectedCents! - e.changeGivenCents! < e.billTotalCents
+    )
       throw new Error("Cash received minus change must cover the bill total.");
   }
-  const cashBills = new Set(cashEntries.map((e) => e.billNumber.toLowerCase()));
-  for (const e of Object.values(s.tips || {}))
-    if (typeof e !== "number" && cashBills.has(e.billNumber.toLowerCase()))
-      throw new Error(
-        "Cash-delivery tips are automatic. Remove the separate tip for that bill.",
-      );
   if (
     new Set(cashEntries.map((e) => e.billNumber.toLowerCase())).size !==
     cashEntries.length

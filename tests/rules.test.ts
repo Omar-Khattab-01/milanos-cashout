@@ -14,7 +14,7 @@ const now = Date.now(),
   end = start + 7 * 3600000;
 const record = {
   id: "shift",
-  schemaVersion: 2,
+  schemaVersion: 3,
   employeeId: "alex",
   employeeName: "Alex",
   start,
@@ -110,12 +110,11 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
         }),
       );
     });
-    it("preserves original records and allows only append-only admin corrections", async () => {
+    it("preserves original records, allows corrections, and lets admins delete shifts", async () => {
       await assertSucceeds(set(ref(db("kiosk"), "cashouts/shift"), record));
       await assertFails(
         update(ref(db("admin"), "cashouts/shift"), { end: end + 60000 }),
       );
-      await assertFails(remove(ref(db("admin"), "cashouts/shift")));
       await assertFails(
         set(ref(db("kiosk"), "cashouts/shift/corrections/x"), correction),
       );
@@ -135,13 +134,12 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
           await get(ref(db("admin"), "cashouts/shift/tips/e000/amountCents"))
         ).val(),
       ).toBe(250);
+      await assertSucceeds(remove(ref(db("admin"), "cashouts/shift")));
     });
     it("validates online tips and cash-delivery fields server-side", async () => {
       const cash = {
         billNumber: "005",
         billTotalCents: 4200,
-        cashCollectedCents: 5000,
-        changeGivenCents: 300,
       };
       await assertSucceeds(
         set(ref(db("kiosk"), "cashouts/shift"), {
@@ -156,7 +154,7 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
         {
           ...record,
           id: "bad",
-          cashDeliveries: { e000: { ...cash, changeGivenCents: 900 } },
+          cashDeliveries: { e000: { ...cash, unexpected: 900 } },
         },
         { ...record, id: "bad", startingCashCents: -1 },
         { ...record, id: "bad", tips: { e000: 200 } },
@@ -201,6 +199,24 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
           rateCents: 1500,
         }),
       );
+    });
+    it("allows admin employee deletion and protects company expenses", async () => {
+      await assertSucceeds(remove(ref(db("admin"), "employees/alex")));
+      await assertFails(set(ref(db("kiosk"), "companies/supplier"), { name: "Supplier" }));
+      await assertSucceeds(set(ref(db("admin"), "companies/supplier"), { name: "Supplier" }));
+      await assertSucceeds(
+        set(ref(db("admin"), "expenses/order"), {
+          id: "order",
+          companyId: "supplier",
+          companyName: "Supplier",
+          date: "2026-09-17",
+          amountCents: 12500,
+          createdAt: Date.now(),
+          createdBy: "admin",
+        }),
+      );
+      await assertFails(get(ref(db("kiosk"), "expenses")));
+      await assertSucceeds(remove(ref(db("admin"), "expenses/order")));
     });
   },
 );

@@ -40,6 +40,7 @@ let expenseMonth = today().slice(0, 7);
 let customDates = false;
 let pending: Cashout | null = null;
 let editId = "";
+let editingEmployeeId = "";
 let reason = "";
 let filterEmployee = "";
 let filterDate = "";
@@ -114,7 +115,12 @@ function historyView() {
 }
 
 function employeeView() {
-  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Employees & pay</h1><span class="subtle">Add drivers and keep contact information current.</span></div></div><div class="split"><section class="card"><h2>Employees</h2>${Object.entries(roster).map(([id, e]) => `<div class="employee"><div class="row"><span class="avatar">${esc(e.name[0])}</span><div><strong>${esc(e.name)}</strong><br><span class="subtle">${esc(e.phone || "No phone number")}</span></div></div><button data-action="delete-employee" data-id="${id}">Delete</button></div>`).join("") || '<p class="subtle">No employees yet.</p>'}<form data-form="employee" style="margin-top:24px"><label for="name">Add employee</label><div class="fields"><div><input id="name" name="name" placeholder="Full name" maxlength="80" required></div><div><input id="phone" name="phone" type="tel" placeholder="Phone number" maxlength="30" required></div></div><button class="primary" type="submit">Add employee</button></form><p class="subtle">Deleting removes the employee from the driver list. Saved shift history remains.</p></section><section class="card"><h2>Store computer</h2><p class="subtle">Authorize this computer once so drivers can use it without signing in.</p><button data-action="authorize-device">Authorize this store computer</button><hr style="border:0;border-top:1px solid var(--line);margin:24px 0"><h2>Hourly pay rate</h2><p class="subtle">One rate for all drivers. Saved shifts keep their original rate.</p><form data-form="rate"><label for="rate">Dollars per hour</label><div class="entry-input"><input id="rate" name="rate" inputmode="decimal" value="${(rate / 100).toFixed(2)}" required><button type="submit" class="primary">Save rate</button></div></form></section></div>`;
+  const employeeRows = Object.entries(roster).map(([id, employee]) => {
+    if (editingEmployeeId === id)
+      return `<form data-form="employee-edit" data-id="${id}" class="employee"><div style="flex:1"><label for="edit-name-${id}">Employee name</label><input id="edit-name-${id}" name="name" value="${esc(employee.name)}" maxlength="80" required><label for="edit-phone-${id}">Phone number</label><input id="edit-phone-${id}" name="phone" type="tel" value="${esc(employee.phone || "")}" placeholder="Phone number" maxlength="30" required></div><div><button class="primary" type="submit">Save</button><button type="button" data-action="cancel-employee-edit">Cancel</button></div></form>`;
+    return `<div class="employee"><div class="row"><span class="avatar">${esc(employee.name[0])}</span><div><strong>${esc(employee.name)}</strong><br><span class="subtle">${esc(employee.phone || "No phone number")}</span></div></div><div class="row"><button data-action="edit-employee" data-id="${id}">Edit</button><button data-action="delete-employee" data-id="${id}">Delete</button></div></div>`;
+  }).join("");
+  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Employees & pay</h1><span class="subtle">Add drivers and keep contact information current.</span></div></div><div class="split"><section class="card"><h2>Employees</h2>${employeeRows || '<p class="subtle">No employees yet.</p>'}<form data-form="employee" style="margin-top:24px"><label for="name">Add employee</label><div class="fields"><div><input id="name" name="name" placeholder="Full name" maxlength="80" required></div><div><input id="phone" name="phone" type="tel" placeholder="Phone number" maxlength="30" required></div></div><button class="primary" type="submit">Add employee</button></form><p class="subtle">Deleting removes the employee from the driver list. Saved shift history remains.</p></section><section class="card"><h2>Store computer</h2><p class="subtle">Authorize this computer once so drivers can use it without signing in.</p><button data-action="authorize-device">Authorize this store computer</button><hr style="border:0;border-top:1px solid var(--line);margin:24px 0"><h2>Hourly pay rate</h2><p class="subtle">One rate for all drivers. Saved shifts keep their original rate.</p><form data-form="rate"><label for="rate">Dollars per hour</label><div class="entry-input"><input id="rate" name="rate" inputmode="decimal" value="${(rate / 100).toFixed(2)}" required><button type="submit" class="primary">Save rate</button></div></form></section></div>`;
 }
 
 function expensesView() {
@@ -254,6 +260,16 @@ root.addEventListener("submit", (event) => {
         await store.saveEmployee(crypto.randomUUID(), { name, phone }); roster = await store.roster();
         message = "Employee added."; success = true; break;
       }
+      case "employee-edit": {
+        const id = form.dataset.id!;
+        const name = String(data.get("name")).trim(), phone = String(data.get("phone")).trim();
+        if (!name) throw new Error("Enter an employee name.");
+        if (!phone) throw new Error("Enter the employee’s phone number.");
+        if (Object.entries(roster).some(([otherId, employee]) => otherId !== id && employee.name.toLowerCase() === name.toLowerCase())) throw new Error("An employee with that name already exists.");
+        await store.saveEmployee(id, { ...roster[id], name, phone });
+        roster = await store.roster(); editingEmployeeId = "";
+        message = "Employee updated."; success = true; break;
+      }
       case "rate": {
         const newRate = cents(String(data.get("rate")));
         await store.setRate(newRate); rate = newRate;
@@ -320,6 +336,8 @@ root.addEventListener("click", (event) => {
       case "new": selected = null; draft = fresh(); confirmed = emptyConfirmed(); [roster, rate] = await Promise.all([store.roster(), store.getRate()]); view = "cashout"; break;
       case "demo-login": await store.login(""); await afterLogin(); break;
       case "demo-device-login": view = "cashout"; message = "Demo computer authorized."; success = true; break;
+      case "edit-employee": editingEmployeeId = button.dataset.id!; break;
+      case "cancel-employee-edit": editingEmployeeId = ""; break;
       case "delete-employee": {
         const id = button.dataset.id!;
         if (!window.confirm(`Delete ${roster[id].name}? Their saved history will remain.`)) return;

@@ -211,6 +211,15 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       );
     });
     it("allows admin employee deletion and protects company expenses", async () => {
+      await assertSucceeds(
+        set(ref(db("admin"), "employees/alex"), {
+          name: "Alex Morgan",
+          phone: "416-555-0101",
+        }),
+      );
+      expect((await get(ref(db("admin"), "employees/alex/phone"))).val()).toBe(
+        "416-555-0101",
+      );
       await assertSucceeds(remove(ref(db("admin"), "employees/alex")));
       await assertFails(set(ref(db("kiosk"), "companies/supplier"), { name: "Supplier" }));
       await assertSucceeds(set(ref(db("admin"), "companies/supplier"), { name: "Supplier" }));

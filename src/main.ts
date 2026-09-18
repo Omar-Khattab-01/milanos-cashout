@@ -86,7 +86,7 @@ function entryField(kind: ListKind, name: string, label: string, placeholder: st
 
 function entrySection(kind: EntryKind, title: string, step: number) {
   const list = Object.entries(draft[kind]);
-  return `<section class="card"><div class="row"><div class="section-head" style="margin:0"><span class="step">${step}</span><div><h2>${title}</h2><span class="subtle">Bill number → Space → amount → Enter.</span></div></div>${confirmed[kind] ? '<span class="pill">Done</span>' : ""}</div>${!confirmed[kind] ? `<form data-form="entry" data-kind="${kind}" class="entry-input bill-input">${entryField(kind, "billNumber", "Bill number", "e.g. 1042")}${entryField(kind, "amount", "Amount", "0.00", true)}<button class="primary" type="submit">+ Add</button></form>` : ""}${list.length ? `<ol class="entry-list">${list.map(([id, entry], i) => `<li><span class="subtle">${i + 1}. Bill ${esc(billOf(entry))}</span><span>${money(amountOf(entry))} ${!confirmed[kind] ? `<button data-action="remove" data-kind="${kind}" data-id="${id}">×</button>` : ""}</span></li>`).join("")}</ol>` : '<p class="subtle">No entries yet. Choose Done if there are none.</p>'}<div class="row entry-footer"><span class="subtle">${list.length} entries · <strong>${money(total(draft[kind]))}</strong></span><button data-action="done" data-kind="${kind}">${confirmed[kind] ? "Edit entries" : "Done"}</button></div></section>`;
+  return `<section class="card"><div class="row"><div class="section-head" style="margin:0"><span class="step">${step}</span><div><h2>${title}</h2><span class="subtle">Bill number → Space → amount → Enter.</span></div></div>${confirmed[kind] ? '<span class="pill">Done</span>' : ""}</div>${!confirmed[kind] ? `<form data-form="entry" data-kind="${kind}" class="entry-input bill-input">${entryField(kind, "billNumber", "Bill number", "e.g. 1042")}${entryField(kind, "amount", "Amount", "0.00", true)}<button class="primary" type="submit">+ Add</button></form>` : ""}${list.length ? `<ol class="entry-list">${list.map(([id, entry], i) => `<li><span class="subtle">${i + 1}. Bill ${esc(billOf(entry))}</span><span>${money(amountOf(entry))} ${!confirmed[kind] ? `<button data-action="remove" data-kind="${kind}" data-id="${id}">×</button>` : ""}</span></li>`).join("")}</ol>` : '<p class="subtle">No entries yet.</p>'}<div class="row entry-footer"><span class="subtle">${list.length} entries · <strong>${money(total(draft[kind]))}</strong></span><button data-action="done" data-kind="${kind}">${confirmed[kind] ? "Edit entries" : "Done"}</button></div></section>`;
 }
 
 function cashSection() {
@@ -320,7 +320,7 @@ root.addEventListener("click", (event) => {
       }
       case "remove": delete draft[button.dataset.kind as ListKind][button.dataset.id!]; pending = null; break;
       case "save": {
-        if (Object.values(confirmed).some((done) => !done)) throw new Error("Choose Done for delivery fees, tips, online tips, and cash deliveries before saving.");
+        confirmed = { deliveries: true, tips: true, onlineTips: true, cashDeliveries: true };
         const s = shift(); validateShift(s);
         if (editId) {
           if (!reason.trim()) throw new Error("Enter a reason for the correction.");

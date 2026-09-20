@@ -579,3 +579,12 @@ a {
   font-size: 22px;
   font-weight: 800;
 }
+.role-tabs {
+  max-width: 520px;
+  margin: 0 0 24px;
+}
+.role-tabs button.active {
+  background: var(--green);
+  border-color: var(--green);
+  color: white;
+}

@@ -4,7 +4,7 @@ import {
   amountOf, billNumber, billOf, cashTotals, cents, current, hours,
   localInput, money, total, totals, validateShift,
   type CashDelivery, type Cashout, type CashoutReview, type Company, type Employee,
-  type EntryList, type Expense, type ReviewStatus, type Shift,
+  type EmployeeRole, type EntryList, type Expense, type ReviewStatus, type Shift,
 } from "./model";
 
 const root = document.querySelector<HTMLDivElement>("#app")!;
@@ -25,7 +25,8 @@ type ListKind = EntryKind | "cashDeliveries";
 type ProtectedView = "history" | "employees" | "expenses";
 
 let roster: Record<string, Employee> = {};
-let rate = 1300;
+let rates: Record<EmployeeRole, number> = { driver: 1300, cook: 1300, cashier: 1300 };
+let cashoutRole: EmployeeRole = "driver";
 let admin = false;
 let view = "cashout";
 let loginTarget: ProtectedView = "history";
@@ -61,23 +62,33 @@ let draft = fresh();
 
 function shift(): Shift {
   const existing = editId && selected ? current(selected) : null;
+  const role = existing?.employeeRole || cashoutRole;
   return {
-    schemaVersion: existing?.schemaVersion === 2 ? 2 : 3,
+    schemaVersion: existing?.schemaVersion && existing.schemaVersion < 4 ? existing.schemaVersion : 4,
     employeeId: draft.employeeId,
     employeeName: existing?.employeeName || roster[draft.employeeId]?.name || "",
+    employeeRole: role,
     start: new Date(`${draft.startDate}T${draft.start}`).getTime(),
     end: new Date(`${draft.endDate}T${draft.end}`).getTime(),
-    rateCents: existing?.rateCents || rate,
-    deliveries: { ...draft.deliveries }, tips: { ...draft.tips }, onlineTips: { ...draft.onlineTips },
-    startingCashCents: /^\d+(\.\d{1,2})?$/.test(draft.startingCash)
-      ? Math.round(Number(draft.startingCash) * 100) : NaN,
-    cashDeliveries: { ...draft.cashDeliveries },
+    rateCents: existing?.rateCents || rates[role],
+    ...(role === "driver" ? {
+      deliveries: { ...draft.deliveries }, tips: { ...draft.tips }, onlineTips: { ...draft.onlineTips },
+      startingCashCents: /^\d+(\.\d{1,2})?$/.test(draft.startingCash)
+        ? Math.round(Number(draft.startingCash) * 100) : NaN,
+      cashDeliveries: { ...draft.cashDeliveries },
+    } : {}),
   };
 }
 
+const roleName = (role: EmployeeRole) => role[0].toUpperCase() + role.slice(1);
+const employeeRole = (employee: Employee): EmployeeRole => employee.role || "driver";
+const shiftRole = (value: Shift): EmployeeRole => value.employeeRole || "driver";
+
 function receipt(record: Cashout) {
-  const s = current(record), t = totals(s), cash = cashTotals(s);
-  return `<div class="receipt"><h2>MILANO’S PIZZERIA</h2><p>DRIVER CASH-OUT</p><hr><dl><dt>Driver</dt><dd>${esc(s.employeeName)}</dd><dt>Shift date</dt><dd>${date(s.start)}</dd><dt>Started</dt><dd>${time(s.start)}</dd><dt>Ended</dt><dd>${date(s.end) !== date(s.start) ? date(s.end) + " " : ""}${time(s.end)}</dd><dt>Hours</dt><dd>${hours(t.minutes)}</dd></dl><hr><dl><dt>Hourly pay</dt><dd>${money(t.wages)}</dd><dt>Delivery fees</dt><dd>${money(t.deliveries)}</dd><dt>Tips</dt><dd>${money(t.tips + t.cashTips)}</dd><dt>Tips Online</dt><dd>${money(t.onlineTips)}</dd></dl><div class="grand"><span>Total pay</span><strong>${money(t.total)}</strong></div><hr><dl><dt>Starting cash</dt><dd>${money(cash.startingCash)}</dd><dt>Cash bill totals</dt><dd>${money(cash.billTotals)}</dd><dt>Cash owed to store</dt><dd>${money(cash.owed)}</dd></dl><p style="font-size:11px">Earnings paid separately</p><p style="font-size:10px">${esc(record.id.slice(0, 8).toUpperCase())}${record.corrections ? " · CORRECTED" : ""}${store.demo ? " · DEMO — NOT A PAYROLL RECORD" : ""}</p></div>`;
+  const s = current(record), t = totals(s), cash = cashTotals(s), role = shiftRole(s);
+  const driverTotals = role === "driver" ? `<dt>Delivery fees</dt><dd>${money(t.deliveries)}</dd><dt>Tips</dt><dd>${money(t.tips + t.cashTips)}</dd><dt>Tips Online</dt><dd>${money(t.onlineTips)}</dd>` : "";
+  const driverCash = role === "driver" ? `<hr><dl><dt>Starting cash</dt><dd>${money(cash.startingCash)}</dd><dt>Cash bill totals</dt><dd>${money(cash.billTotals)}</dd><dt>Cash owed to store</dt><dd>${money(cash.owed)}</dd></dl><p style="font-size:11px">Earnings paid separately</p>` : "";
+  return `<div class="receipt"><h2>MILANO’S PIZZERIA</h2><p>${roleName(role).toUpperCase()} CASH-OUT</p><hr><dl><dt>Employee</dt><dd>${esc(s.employeeName)}</dd><dt>Role</dt><dd>${roleName(role)}</dd><dt>Shift date</dt><dd>${date(s.start)}</dd><dt>Started</dt><dd>${time(s.start)}</dd><dt>Ended</dt><dd>${date(s.end) !== date(s.start) ? date(s.end) + " " : ""}${time(s.end)}</dd><dt>Hours</dt><dd>${hours(t.minutes)}</dd></dl><hr><dl><dt>Hourly pay</dt><dd>${money(t.wages)}</dd>${driverTotals}</dl><div class="grand"><span>Total pay</span><strong>${money(t.total)}</strong></div>${driverCash}<p style="font-size:10px">${esc(record.id.slice(0, 8).toUpperCase())}${record.corrections ? " · CORRECTED" : ""}${store.demo ? " · DEMO — NOT A PAYROLL RECORD" : ""}</p></div>`;
 }
 
 function entryField(kind: ListKind, name: string, label: string, placeholder: string, moneyField = false) {
@@ -98,7 +109,18 @@ function cashSection() {
 function cashout() {
   const s = shift(), t = totals(s), cash = cashTotals(s);
   const valid = Number.isFinite(t.minutes) && t.minutes > 0 && t.minutes <= 1440;
-  return `<div class="intro"><div><div class="eyebrow">Driver cash-out</div><h1>${editId ? "Correct this shift" : "Let’s wrap up your shift."}</h1><span class="subtle">Enter your hours, delivery fees, and tips.</span></div><span class="pill">${money(s.rateCents)} / hour</span></div><div class="layout"><div><section class="card"><div class="section-head"><span class="step">1</span><div><h2>Your shift</h2><span class="subtle">Choose your name and shift times.</span></div></div><div class="fields"><div class="full"><label for="employee">Driver name</label><select id="employee" data-draft="employeeId" ${editId ? "disabled" : ""}><option value="">Select your name</option>${Object.entries(roster).filter(([id, e]) => e.active !== false || id === draft.employeeId).map(([id, e]) => `<option value="${esc(id)}" ${draft.employeeId === id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select>${!Object.keys(roster).length ? '<p class="subtle">An admin needs to add employees first.</p>' : ""}</div><div><label for="start">Start time</label><input id="start" type="time" data-draft="start" value="${esc(draft.start)}"></div><div><label for="end">End time</label><input id="end" type="time" data-draft="end" value="${esc(draft.end)}"></div></div><p class="subtle">Start date: ${esc(draft.startDate)} · End date: ${esc(draft.endDate)}<br>Fill this in at the end of your shift.</p><details class="date-options"><summary>Change dates / overnight shift</summary><div class="fields"><div><label for="startDate">Start date</label><input id="startDate" type="date" data-draft="startDate" value="${esc(draft.startDate)}"></div><div><label for="endDate">End date</label><input id="endDate" type="date" data-draft="endDate" value="${esc(draft.endDate)}"></div></div></details></section>${entrySection("deliveries", "Delivery fees", 2)}${entrySection("tips", "Tips", 3)}${entrySection("onlineTips", "Tips Online", 4)}${cashSection()}${editId ? `<section class="card"><label for="reason">Reason for correction</label><input id="reason" data-reason value="${esc(reason)}" maxlength="500" placeholder="Explain what changed and why"><p class="subtle">The original shift and every correction are retained.</p></section>` : ""}</div><aside class="card summary"><div class="eyebrow">Ready when you are</div><h2 style="margin-top:9px">Shift summary</h2><div class="summary-line"><span class="subtle">Driver</span><strong>${esc(s.employeeName || "Not selected")}</strong></div><div class="summary-line"><span class="subtle">Time worked</span><strong>${valid ? hours(t.minutes) : "—"}</strong></div><div class="summary-line"><span class="subtle">Hourly pay</span><strong>${valid ? money(t.wages) : "—"}</strong></div><div class="summary-line"><span class="subtle">Delivery fees</span><strong>${money(t.deliveries)}</strong></div><div class="summary-line"><span class="subtle">Tips</span><strong>${money(t.tips + t.cashTips)}</strong></div><div class="summary-line"><span class="subtle">Tips Online</span><strong>${money(t.onlineTips)}</strong></div><div class="grand"><span>Total pay</span><strong>${money((valid ? t.wages : 0) + t.deliveries + t.tips + t.onlineTips + t.cashTips)}</strong></div><div class="summary-line"><span class="subtle">Starting cash</span><strong>${Number.isFinite(s.startingCashCents) ? money(cash.startingCash) : "—"}</strong></div><div class="summary-line"><span class="subtle">Cash bill totals</span><strong>${money(cash.billTotals)}</strong></div><div class="grand"><span>Cash owed to store</span><strong>${Number.isFinite(s.startingCashCents) ? money(cash.owed) : "—"}</strong></div><p class="subtle">Starting cash plus cash bill totals. Earnings are paid separately.</p><button class="red wide" data-action="save">${busy ? "Saving…" : editId ? "Save correction" : "Save cash-out"}</button><p class="print-note">${store.demo ? "Demo records stay in memory only." : "Your cash-out will be saved in the system."}<br>Receipts can be printed from History.</p>${editId ? '<button class="wide" data-action="cancel-edit">Cancel correction</button>' : ""}</aside></div>`;
+  const role = shiftRole(s);
+  const tabs = !editId ? `<div class="toolbar role-tabs">${(["driver", "cook", "cashier"] as EmployeeRole[]).map((item) => `<button data-action="cashout-role" data-role="${item}" class="${cashoutRole === item ? "active" : ""}">${roleName(item)}</button>`).join("")}</div>` : "";
+  const employees = Object.entries(roster).filter(([id, employee]) =>
+    (employee.active !== false && employeeRole(employee) === role) || id === draft.employeeId,
+  );
+  const shiftCard = `<section class="card"><div class="section-head"><span class="step">1</span><div><h2>Your shift</h2><span class="subtle">Choose your name and shift times.</span></div></div><div class="fields"><div class="full"><label for="employee">${roleName(role)} name</label><select id="employee" data-draft="employeeId" ${editId ? "disabled" : ""}><option value="">Select your name</option>${employees.map(([id, employee]) => `<option value="${esc(id)}" ${draft.employeeId === id ? "selected" : ""}>${esc(employee.name)}</option>`).join("")}</select>${!employees.length ? `<p class="subtle">An admin needs to add a ${role} employee first.</p>` : ""}</div><div><label for="start">Start time</label><input id="start" type="time" data-draft="start" value="${esc(draft.start)}"></div><div><label for="end">End time</label><input id="end" type="time" data-draft="end" value="${esc(draft.end)}"></div></div><p class="subtle">Start date: ${esc(draft.startDate)} · End date: ${esc(draft.endDate)}<br>Fill this in at the end of your shift.</p><details class="date-options"><summary>Change dates / overnight shift</summary><div class="fields"><div><label for="startDate">Start date</label><input id="startDate" type="date" data-draft="startDate" value="${esc(draft.startDate)}"></div><div><label for="endDate">End date</label><input id="endDate" type="date" data-draft="endDate" value="${esc(draft.endDate)}"></div></div></details></section>`;
+  const driverSections = role === "driver" ? `${entrySection("deliveries", "Delivery fees", 2)}${entrySection("tips", "Tips", 3)}${entrySection("onlineTips", "Tips Online", 4)}${cashSection()}` : "";
+  const correction = editId ? `<section class="card"><label for="reason">Reason for correction</label><input id="reason" data-reason value="${esc(reason)}" maxlength="500" placeholder="Explain what changed and why"><p class="subtle">The original shift and every correction are retained.</p></section>` : "";
+  const driverSummary = role === "driver" ? `<div class="summary-line"><span class="subtle">Delivery fees</span><strong>${money(t.deliveries)}</strong></div><div class="summary-line"><span class="subtle">Tips</span><strong>${money(t.tips + t.cashTips)}</strong></div><div class="summary-line"><span class="subtle">Tips Online</span><strong>${money(t.onlineTips)}</strong></div>` : "";
+  const cashSummary = role === "driver" ? `<div class="summary-line"><span class="subtle">Starting cash</span><strong>${Number.isFinite(s.startingCashCents) ? money(cash.startingCash) : "—"}</strong></div><div class="summary-line"><span class="subtle">Cash bill totals</span><strong>${money(cash.billTotals)}</strong></div><div class="grand"><span>Cash owed to store</span><strong>${Number.isFinite(s.startingCashCents) ? money(cash.owed) : "—"}</strong></div><p class="subtle">Starting cash plus cash bill totals. Earnings are paid separately.</p>` : "";
+  const displayedTotal = role === "driver" ? (valid ? t.wages : 0) + t.deliveries + t.tips + t.onlineTips + t.cashTips : valid ? t.wages : 0;
+  return `${tabs}<div class="intro"><div><div class="eyebrow">${roleName(role)} cash-out</div><h1>${editId ? "Correct this shift" : "Let’s wrap up your shift."}</h1><span class="subtle">${role === "driver" ? "Enter your hours, delivery fees, and tips." : "Enter your start and end time."}</span></div><span class="pill">${money(s.rateCents)} / hour</span></div><div class="layout"><div>${shiftCard}${driverSections}${correction}</div><aside class="card summary"><div class="eyebrow">Ready when you are</div><h2 style="margin-top:9px">Shift summary</h2><div class="summary-line"><span class="subtle">Employee</span><strong>${esc(s.employeeName || "Not selected")}</strong></div><div class="summary-line"><span class="subtle">Role</span><strong>${roleName(role)}</strong></div><div class="summary-line"><span class="subtle">Time worked</span><strong>${valid ? hours(t.minutes) : "—"}</strong></div><div class="summary-line"><span class="subtle">Hourly pay</span><strong>${valid ? money(t.wages) : "—"}</strong></div>${driverSummary}<div class="grand"><span>Total pay</span><strong>${money(displayedTotal)}</strong></div>${cashSummary}<button class="red wide" data-action="save">${busy ? "Saving…" : editId ? "Save correction" : "Save cash-out"}</button><p class="print-note">${store.demo ? "Demo records stay in memory only." : "Your cash-out will be saved in the system."}<br>Receipts can be printed from History.</p>${editId ? '<button class="wide" data-action="cancel-edit">Cancel correction</button>' : ""}</aside></div>`;
 }
 
 function loginView() {
@@ -122,16 +144,16 @@ function reviewBadge(id: string) {
 
 function historyView() {
   const filtered = records.filter((r) => (!filterEmployee || current(r).employeeId === filterEmployee) && (!filterDate || localInput(current(r).start).slice(0, 10) === filterDate));
-  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Cash-out history</h1><span class="subtle">Review, correct, reprint, or delete saved shifts.</span></div><button data-action="load-all">Load all history</button></div><div class="toolbar"><select id="filter-employee"><option value="">All employees</option>${Object.entries(roster).map(([id, e]) => `<option value="${esc(id)}" ${filterEmployee === id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select><input id="filter-date" type="date" value="${filterDate}"><button data-action="clear-filters">Clear filters</button></div><section class="card table-wrap"><p class="subtle">${records.length} loaded · ${filtered.length} matching shifts.</p>${filtered.length ? `<table><thead><tr><th>Driver / date</th><th>Review status</th><th>Hours</th><th>Employee cost</th><th>Cash owed</th><th></th></tr></thead><tbody>${filtered.map((r) => { const s = current(r), t = totals(s), status = reviewState(r.id); return `<tr><td><strong>${esc(s.employeeName)}</strong><br><span class="subtle">${date(s.start)}${r.corrections ? " · Corrected" : ""}</span></td><td>${reviewBadge(r.id)}</td><td>${hours(t.minutes)}</td><td><strong>${money(t.total)}</strong></td><td>${money(cashTotals(s).owed)}</td><td><div class="row"><button data-action="detail" data-id="${r.id}">View</button>${status === "reviewed" ? '<span class="review-check" aria-label="Reviewed">✓</span>' : ""}</div></td></tr>`; }).join("")}</tbody></table>` : '<div class="empty">No cash-outs found.</div>'}</section>`;
+  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Cash-out history</h1><span class="subtle">Review, correct, reprint, or delete saved shifts.</span></div><button data-action="load-all">Load all history</button></div><div class="toolbar"><select id="filter-employee"><option value="">All employees</option>${Object.entries(roster).map(([id, e]) => `<option value="${esc(id)}" ${filterEmployee === id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select><input id="filter-date" type="date" value="${filterDate}"><button data-action="clear-filters">Clear filters</button></div><section class="card table-wrap"><p class="subtle">${records.length} loaded · ${filtered.length} matching shifts.</p>${filtered.length ? `<table><thead><tr><th>Employee / date</th><th>Review status</th><th>Hours</th><th>Total pay</th><th>Cash owed</th><th></th></tr></thead><tbody>${filtered.map((r) => { const s = current(r), t = totals(s), status = reviewState(r.id); return `<tr><td><strong>${esc(s.employeeName)}</strong><br><span class="subtle">${roleName(shiftRole(s))} · ${date(s.start)}${r.corrections ? " · Corrected" : ""}</span></td><td>${reviewBadge(r.id)}</td><td>${hours(t.minutes)}</td><td><strong>${money(t.total)}</strong></td><td>${shiftRole(s) === "driver" ? money(cashTotals(s).owed) : "—"}</td><td><div class="row"><button data-action="detail" data-id="${r.id}">View</button>${status === "reviewed" ? '<span class="review-check" aria-label="Reviewed">✓</span>' : ""}</div></td></tr>`; }).join("")}</tbody></table>` : '<div class="empty">No cash-outs found.</div>'}</section>`;
 }
 
 function employeeView() {
   const employeeRows = Object.entries(roster).map(([id, employee]) => {
     if (editingEmployeeId === id)
-      return `<form data-form="employee-edit" data-id="${id}" class="employee"><div style="flex:1"><label for="edit-name-${id}">Employee name</label><input id="edit-name-${id}" name="name" value="${esc(employee.name)}" maxlength="80" required><label for="edit-phone-${id}">Phone number</label><input id="edit-phone-${id}" name="phone" type="tel" value="${esc(employee.phone || "")}" placeholder="Phone number" maxlength="30" required></div><div><button class="primary" type="submit">Save</button><button type="button" data-action="cancel-employee-edit">Cancel</button></div></form>`;
-    return `<div class="employee"><div class="row"><span class="avatar">${esc(employee.name[0])}</span><div><strong>${esc(employee.name)}</strong><br><span class="subtle">${esc(employee.phone || "No phone number")}</span></div></div><div class="row"><button data-action="edit-employee" data-id="${id}">Edit</button><button data-action="delete-employee" data-id="${id}">Delete</button></div></div>`;
+      return `<form data-form="employee-edit" data-id="${id}" class="employee"><div style="flex:1"><label for="edit-name-${id}">Employee name</label><input id="edit-name-${id}" name="name" value="${esc(employee.name)}" maxlength="80" required><label for="edit-phone-${id}">Phone number</label><input id="edit-phone-${id}" name="phone" type="tel" value="${esc(employee.phone || "")}" placeholder="Phone number" maxlength="30" required><label for="edit-role-${id}">Role</label><select id="edit-role-${id}" name="role" required>${(["driver", "cook", "cashier"] as EmployeeRole[]).map((role) => `<option value="${role}" ${employeeRole(employee) === role ? "selected" : ""}>${roleName(role)}</option>`).join("")}</select></div><div><button class="primary" type="submit">Save</button><button type="button" data-action="cancel-employee-edit">Cancel</button></div></form>`;
+    return `<div class="employee"><div class="row"><span class="avatar">${esc(employee.name[0])}</span><div><strong>${esc(employee.name)}</strong><br><span class="subtle">${roleName(employeeRole(employee))} · ${esc(employee.phone || "No phone number")}</span></div></div><div class="row"><button data-action="edit-employee" data-id="${id}">Edit</button><button data-action="delete-employee" data-id="${id}">Delete</button></div></div>`;
   }).join("");
-  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Employees & pay</h1><span class="subtle">Add drivers and keep contact information current.</span></div></div><div class="split"><section class="card"><h2>Employees</h2>${employeeRows || '<p class="subtle">No employees yet.</p>'}<form data-form="employee" style="margin-top:24px"><label for="name">Add employee</label><div class="fields"><div><input id="name" name="name" placeholder="Full name" maxlength="80" required></div><div><input id="phone" name="phone" type="tel" placeholder="Phone number" maxlength="30" required></div></div><button class="primary" type="submit">Add employee</button></form><p class="subtle">Deleting removes the employee from the driver list. Saved shift history remains.</p></section><section class="card"><h2>Store computer</h2><p class="subtle">Authorize this computer once so drivers can use it without signing in.</p><button data-action="authorize-device">Authorize this store computer</button><hr style="border:0;border-top:1px solid var(--line);margin:24px 0"><h2>Hourly pay rate</h2><p class="subtle">One rate for all drivers. Saved shifts keep their original rate.</p><form data-form="rate"><label for="rate">Dollars per hour</label><div class="entry-input"><input id="rate" name="rate" inputmode="decimal" value="${(rate / 100).toFixed(2)}" required><button type="submit" class="primary">Save rate</button></div></form></section></div>`;
+  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Employees & pay</h1><span class="subtle">Assign each employee as a driver, cook, or cashier.</span></div></div><div class="split"><section class="card"><h2>Employees</h2>${employeeRows || '<p class="subtle">No employees yet.</p>'}<form data-form="employee" style="margin-top:24px"><label for="name">Add employee</label><div class="fields"><div><input id="name" name="name" placeholder="Full name" maxlength="80" required></div><div><input id="phone" name="phone" type="tel" placeholder="Phone number" maxlength="30" required></div><div class="full"><select name="role" aria-label="Employee role" required><option value="driver">Driver</option><option value="cook">Cook</option><option value="cashier">Cashier</option></select></div></div><button class="primary" type="submit">Add employee</button></form><p class="subtle">Deleting removes the employee from the cash-out list. Saved shift history remains.</p></section><section class="card"><h2>Store computer</h2><p class="subtle">Authorize this computer once so employees can use it without signing in.</p><button data-action="authorize-device">Authorize this store computer</button><hr style="border:0;border-top:1px solid var(--line);margin:24px 0"><h2>Hourly pay rates</h2><p class="subtle">Set one rate for each role. Saved shifts keep their original rate.</p><form data-form="rates"><label for="driver-rate">Driver</label><input id="driver-rate" name="driver" inputmode="decimal" value="${(rates.driver / 100).toFixed(2)}" required><label for="cook-rate">Cook</label><input id="cook-rate" name="cook" inputmode="decimal" value="${(rates.cook / 100).toFixed(2)}" required><label for="cashier-rate">Cashier</label><input id="cashier-rate" name="cashier" inputmode="decimal" value="${(rates.cashier / 100).toFixed(2)}" required><button type="submit" class="primary wide">Save hourly rates</button></form></section></div>`;
 }
 
 function expensesView() {
@@ -145,6 +167,7 @@ function expensesView() {
   }, {});
   const driverPayouts = monthShifts.reduce<Record<string, { name: string; deliveries: number; tips: number }>>((result, record) => {
     const s = current(record), t = totals(s);
+    if (shiftRole(s) !== "driver") return result;
     result[s.employeeId] ||= { name: s.employeeName, deliveries: 0, tips: 0 };
     result[s.employeeId].deliveries += t.deliveries;
     result[s.employeeId].tips += t.tips + t.onlineTips + t.cashTips;
@@ -164,12 +187,13 @@ function detailView() {
   const reviewActions = status === "reviewed"
     ? `<div class="row"><span>${reviewBadge(selected.id)}</span><span class="review-check" aria-label="Reviewed">✓</span></div>`
     : `<div class="row"><span>${reviewBadge(selected.id)}</span><div class="row"><button class="primary" data-action="set-review" data-status="reviewed">Mark Paid</button>${status === "not_reviewed" ? '<button data-action="set-review" data-status="under_review">Partially Paid</button>' : ""}</div></div>`;
-  return `<div class="detail"><button data-action="back-history">← Back to history</button><h1 style="margin-top:20px">Shift record</h1><div class="row"><span class="subtle">${esc(s.employeeName)} · ${date(s.start)}</span><div class="row"><button data-action="edit">Correct</button><button class="primary" data-action="print">Reprint</button><button data-action="delete-shift">Delete shift</button></div></div><section class="card"><h2>Payment review</h2>${reviewActions}</section>${receipt(selected)}<section class="card"><h2>Itemized entries</h2>${items("Delivery fees", s.deliveries)}${items("Tips", s.tips)}${items("Tips Online", s.onlineTips)}${cashItems(s)}<details><summary>Original record & correction history</summary><p class="subtle">Original submission: ${new Date(selected.createdAt).toLocaleString()}</p>${receipt({ ...selected, corrections: undefined })}${Object.values(selected.corrections || {}).sort((a, b) => b.editedAt - a.editedAt).map((c) => `<details><summary>${new Date(c.editedAt).toLocaleString()} · ${esc(c.reason)}</summary>${receipt({ ...c, id: selected!.id, createdBy: selected!.createdBy, createdAt: selected!.createdAt })}</details>`).join("")}</details></section></div>`;
+  const itemized = shiftRole(s) === "driver" ? `<h2>Itemized entries</h2>${items("Delivery fees", s.deliveries)}${items("Tips", s.tips)}${items("Tips Online", s.onlineTips)}${cashItems(s)}` : "";
+  return `<div class="detail"><button data-action="back-history">← Back to history</button><h1 style="margin-top:20px">Shift record</h1><div class="row"><span class="subtle">${esc(s.employeeName)} · ${roleName(shiftRole(s))} · ${date(s.start)}</span><div class="row"><button data-action="edit">Correct</button><button class="primary" data-action="print">Reprint</button><button data-action="delete-shift">Delete shift</button></div></div><section class="card"><h2>Payment review</h2>${reviewActions}</section>${receipt(selected)}<section class="card">${itemized}<details><summary>Original record & correction history</summary><p class="subtle">Original submission: ${new Date(selected.createdAt).toLocaleString()}</p>${receipt({ ...selected, corrections: undefined })}${Object.values(selected.corrections || {}).sort((a, b) => b.editedAt - a.editedAt).map((c) => `<details><summary>${new Date(c.editedAt).toLocaleString()} · ${esc(c.reason)}</summary>${receipt({ ...c, id: selected!.id, createdBy: selected!.createdBy, createdAt: selected!.createdAt })}</details>`).join("")}</details></section></div>`;
 }
 
 function render() {
   const datesOpen = root.querySelector<HTMLDetailsElement>(".date-options")?.open;
-  root.innerHTML = `<header><div class="brand"><span class="monogram">M</span><div><strong>milano’s</strong><small>PIZZERIA · DRIVER DESK</small></div></div><nav aria-label="Main navigation"><button data-action="cashout-nav" class="${view === "cashout" || view === "device-login" ? "active" : ""}">Cash-out</button><button data-action="protected-nav" data-view="history" class="${view === "history" || view === "detail" ? "active" : ""}">History</button><button data-action="protected-nav" data-view="employees" class="${view === "employees" ? "active" : ""}">Employees</button><button data-action="protected-nav" data-view="expenses" class="${view === "expenses" ? "active" : ""}">Expenses</button></nav></header>${store.demo ? '<div class="notice">Preview mode · Records are temporary and cleared when you reload.</div>' : ""}<main>${message ? `<div role="alert" class="message ${success ? "success" : ""}">${esc(message)}</div>` : ""}${view === "cashout" ? cashout() : view === "device-login" ? deviceLoginView() : view === "login" ? loginView() : view === "history" && admin ? historyView() : view === "employees" && admin ? employeeView() : view === "expenses" && admin ? expensesView() : view === "detail" && admin ? detailView() : view === "saved" && selected ? `<div class="saved-heading"><span class="pill">${store.demo ? "Demo saved" : "Cash-out saved"}</span><h1>You’re all set.</h1><p class="subtle">The receipt below is for reference. An admin can print it from History.</p></div>${receipt(selected)}<div class="row" style="justify-content:center"><button class="primary" data-action="new">Next driver</button></div>` : ""}</main><footer>Milano’s Pizzeria · Driver cash-outs</footer>`;
+  root.innerHTML = `<header><div class="brand"><span class="monogram">M</span><div><strong>milano’s</strong><small>PIZZERIA · EMPLOYEE DESK</small></div></div><nav aria-label="Main navigation"><button data-action="cashout-nav" class="${view === "cashout" || view === "device-login" ? "active" : ""}">Cash-out</button><button data-action="protected-nav" data-view="history" class="${view === "history" || view === "detail" ? "active" : ""}">History</button><button data-action="protected-nav" data-view="employees" class="${view === "employees" ? "active" : ""}">Employees</button><button data-action="protected-nav" data-view="expenses" class="${view === "expenses" ? "active" : ""}">Expenses</button></nav></header>${store.demo ? '<div class="notice">Preview mode · Records are temporary and cleared when you reload.</div>' : ""}<main>${message ? `<div role="alert" class="message ${success ? "success" : ""}">${esc(message)}</div>` : ""}${view === "cashout" ? cashout() : view === "device-login" ? deviceLoginView() : view === "login" ? loginView() : view === "history" && admin ? historyView() : view === "employees" && admin ? employeeView() : view === "expenses" && admin ? expensesView() : view === "detail" && admin ? detailView() : view === "saved" && selected ? `<div class="saved-heading"><span class="pill">${store.demo ? "Demo saved" : "Cash-out saved"}</span><h1>You’re all set.</h1><p class="subtle">The receipt below is for reference. An admin can print it from History.</p></div>${receipt(selected)}<div class="row" style="justify-content:center"><button class="primary" data-action="new">Next employee</button></div>` : ""}</main><footer>Milano’s Pizzeria · Employee cash-outs</footer>`;
   if (datesOpen) root.querySelector<HTMLDetailsElement>(".date-options")!.open = true;
   if (busy) root.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
 }
@@ -201,7 +225,7 @@ async function openProtected(target: ProtectedView) {
 async function afterLogin() {
   admin = true;
   roster = await store.roster();
-  try { rate = await store.getRate(); } catch { rate = 1300; }
+  try { rates = await store.getRates(); } catch { rates = { driver: 1300, cook: 1300, cashier: 1300 }; }
   if (loginTarget === "history") [records, reviews] = await Promise.all([store.history(), store.getReviews()]);
   if (loginTarget === "expenses") [records, companies, expenses] = await Promise.all([store.allHistory(), store.getCompanies(), store.getExpenses()]);
   view = loginTarget;
@@ -271,33 +295,42 @@ root.addEventListener("submit", (event) => {
         await store.login(String(data.get("pin")));
         await store.authorizeDevice();
         await store.logout();
-        [roster, rate] = await Promise.all([store.roster(), store.getRate()]);
+        [roster, rates] = await Promise.all([store.roster(), store.getRates()]);
         view = "cashout";
-        message = "This computer is authorized. Driver cash-outs will stay unlocked here.";
+        message = "This computer is authorized. Employee cash-outs will stay unlocked here.";
         success = true;
         break;
       case "employee": {
         const name = String(data.get("name")).trim(), phone = String(data.get("phone")).trim();
+        const role = String(data.get("role")) as EmployeeRole;
         if (!name) throw new Error("Enter an employee name.");
         if (!phone) throw new Error("Enter the employee’s phone number.");
         if (Object.values(roster).some((e) => e.name.toLowerCase() === name.toLowerCase())) throw new Error("An employee with that name already exists.");
-        await store.saveEmployee(crypto.randomUUID(), { name, phone }); roster = await store.roster();
+        if (!["driver", "cook", "cashier"].includes(role)) throw new Error("Select an employee role.");
+        await store.saveEmployee(crypto.randomUUID(), { name, phone, role }); roster = await store.roster();
         message = "Employee added."; success = true; break;
       }
       case "employee-edit": {
         const id = form.dataset.id!;
         const name = String(data.get("name")).trim(), phone = String(data.get("phone")).trim();
+        const role = String(data.get("role")) as EmployeeRole;
         if (!name) throw new Error("Enter an employee name.");
         if (!phone) throw new Error("Enter the employee’s phone number.");
         if (Object.entries(roster).some(([otherId, employee]) => otherId !== id && employee.name.toLowerCase() === name.toLowerCase())) throw new Error("An employee with that name already exists.");
-        await store.saveEmployee(id, { ...roster[id], name, phone });
+        if (!["driver", "cook", "cashier"].includes(role)) throw new Error("Select an employee role.");
+        await store.saveEmployee(id, { ...roster[id], name, phone, role });
         roster = await store.roster(); editingEmployeeId = "";
         message = "Employee updated."; success = true; break;
       }
-      case "rate": {
-        const newRate = cents(String(data.get("rate")));
-        await store.setRate(newRate); rate = newRate;
-        message = "Hourly rate updated. Existing shifts are unchanged."; success = true; break;
+      case "rates": {
+        const nextRates: Record<EmployeeRole, number> = {
+          driver: cents(String(data.get("driver"))),
+          cook: cents(String(data.get("cook"))),
+          cashier: cents(String(data.get("cashier"))),
+        };
+        await Promise.all((Object.entries(nextRates) as [EmployeeRole, number][]).map(([role, value]) => store.setRate(role, value)));
+        rates = nextRates;
+        message = "Hourly rates updated. Existing shifts are unchanged."; success = true; break;
       }
       case "company": {
         const name = String(data.get("name")).trim();
@@ -330,10 +363,16 @@ root.addEventListener("click", (event) => {
         if (admin) await store.logout();
         admin = false; editId = ""; selected = null; view = "cashout";
         try {
-          [roster, rate] = await Promise.all([store.roster(), store.getRate()]);
+          [roster, rates] = await Promise.all([store.roster(), store.getRates()]);
         } catch {
           view = "device-login";
         }
+        break;
+      case "cashout-role":
+        cashoutRole = button.dataset.role as EmployeeRole;
+        draft = fresh();
+        confirmed = emptyConfirmed();
+        pending = null;
         break;
       case "back-history": [records, reviews] = await Promise.all([store.history(), store.getReviews()]); view = "history"; break;
       case "authorize-device": await store.authorizeDevice(); message = "This store computer is authorized for driver cash-outs."; success = true; break;
@@ -357,7 +396,7 @@ root.addEventListener("click", (event) => {
         draft = fresh(); Object.keys(entryInputs).forEach((key) => delete entryInputs[key]); confirmed = emptyConfirmed(); break;
       }
       case "print": print(); break;
-      case "new": selected = null; draft = fresh(); confirmed = emptyConfirmed(); [roster, rate] = await Promise.all([store.roster(), store.getRate()]); view = "cashout"; break;
+      case "new": selected = null; draft = fresh(); confirmed = emptyConfirmed(); [roster, rates] = await Promise.all([store.roster(), store.getRates()]); view = "cashout"; break;
       case "demo-login": await store.login(""); await afterLogin(); break;
       case "demo-device-login": view = "cashout"; message = "Demo computer authorized."; success = true; break;
       case "edit-employee": editingEmployeeId = button.dataset.id!; break;
@@ -384,6 +423,7 @@ root.addEventListener("click", (event) => {
       case "edit": {
         if (!selected) return;
         const s = current(selected); editId = selected.id;
+        cashoutRole = shiftRole(s);
         draft = { employeeId: s.employeeId, startDate: localInput(s.start).slice(0, 10), endDate: localInput(s.end).slice(0, 10), start: localInput(s.start).slice(11), end: localInput(s.end).slice(11), deliveries: { ...s.deliveries }, tips: { ...s.tips }, onlineTips: { ...s.onlineTips }, startingCash: ((s.startingCashCents || 0) / 100).toFixed(2), cashDeliveries: { ...s.cashDeliveries } };
         confirmed = { deliveries: true, tips: true, onlineTips: true, cashDeliveries: true }; reason = ""; view = "cashout"; break;
       }
@@ -398,7 +438,7 @@ root.innerHTML = "<main><h1>Milano’s driver desk</h1><p>Loading…</p></main>"
 void run(async () => {
   await store.init(); admin = false;
   try {
-    [roster, rate] = await Promise.all([store.roster(), store.getRate()]);
+    [roster, rates] = await Promise.all([store.roster(), store.getRates()]);
   } catch {
     view = "device-login";
   }

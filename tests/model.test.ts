@@ -79,6 +79,24 @@ describe("cash-out accounting", () => {
 });
 
 describe("bill-linked cash-out entries", () => {
+  it("calculates hourly-only cook and cashier cash-outs", () => {
+    const cook: Shift = {
+      employeeId: "cook",
+      employeeName: "Chris",
+      employeeRole: "cook",
+      start: shift.start,
+      end: shift.start + 5 * 3600000,
+      rateCents: 1500,
+    };
+    validateShift(cook);
+    expect(totals(cook)).toMatchObject({ wages: 7500, total: 7500 });
+    expect(() =>
+      validateShift({ ...cook, employeeRole: "manager" as "cook" }),
+    ).toThrow(/role/);
+    expect(() =>
+      validateShift({ ...cook, tips: { e000: 500 } }),
+    ).toThrow(/worked hours/);
+  });
   it("allows a future end time while preserving duration limits", () => {
     const start = Math.floor((Date.now() - 3600000) / 60000) * 60000;
     expect(() =>

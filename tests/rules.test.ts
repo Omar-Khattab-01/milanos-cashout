@@ -14,9 +14,10 @@ const now = Date.now(),
   end = start + 7 * 3600000;
 const record = {
   id: "shift",
-  schemaVersion: 3,
+  schemaVersion: 4,
   employeeId: "alex",
   employeeName: "Alex",
+  employeeRole: "driver",
   start,
   end,
   rateCents: 1300,
@@ -32,6 +33,7 @@ const record = {
 const correction = {
   employeeId: "alex",
   employeeName: "Alex",
+  employeeRole: "driver",
   start,
   end,
   rateCents: 1300,
@@ -56,7 +58,11 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
         await set(ref(c.database()), {
           admins: { admin: true },
           devices: { kiosk: true },
-          employees: { alex: { name: "Alex", active: true } },
+          employees: {
+            alex: { name: "Alex", active: true, role: "driver" },
+            chris: { name: "Chris", role: "cook" },
+            casey: { name: "Casey", role: "cashier" },
+          },
           settings: { rateCents: 1300 },
         });
       });
@@ -132,6 +138,52 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
             tips: { e000: { amountCents: amount, billNumber: "104" } },
           }),
         );
+    });
+    it("allows cook and cashier shifts with role rates and no driver entries", async () => {
+      await assertSucceeds(
+        set(ref(db("kiosk"), "cashouts/cook-shift"), {
+          ...record,
+          id: "cook-shift",
+          employeeId: "chris",
+          employeeName: "Chris",
+          employeeRole: "cook",
+          deliveries: null,
+          tips: null,
+        }),
+      );
+      await set(ref(db("admin"), "settings/cashierRateCents"), 1500);
+      await assertSucceeds(
+        set(ref(db("kiosk"), "cashouts/cashier-shift"), {
+          ...record,
+          id: "cashier-shift",
+          employeeId: "casey",
+          employeeName: "Casey",
+          employeeRole: "cashier",
+          rateCents: 1500,
+          deliveries: null,
+          tips: null,
+        }),
+      );
+      await assertFails(
+        set(ref(db("kiosk"), "cashouts/spoofed-role"), {
+          ...record,
+          id: "spoofed-role",
+          employeeId: "chris",
+          employeeName: "Chris",
+          employeeRole: "driver",
+        }),
+      );
+      await assertFails(
+        set(ref(db("kiosk"), "cashouts/cook-with-tip"), {
+          ...record,
+          id: "cook-with-tip",
+          employeeId: "chris",
+          employeeName: "Chris",
+          employeeRole: "cook",
+          deliveries: null,
+          tips: { e000: { amountCents: 500, billNumber: "99" } },
+        }),
+      );
     });
     it("rejects name spoofing, invalid durations and injected corrections", async () => {
       await assertFails(

@@ -25,6 +25,7 @@ import type {
   Company,
   Correction,
   Employee,
+  EmployeeRole,
   Expense,
   ReviewStatus,
 } from "./model";
@@ -46,11 +47,15 @@ const adminDb = adminApp ? getDatabase(adminApp) : null;
 let db = kioskDb;
 let demoAdmin = false;
 let employees: Record<string, Employee> = {
-  alex: { name: "Alex Morgan", phone: "416-555-0101" },
-  jamie: { name: "Jamie Wilson", phone: "416-555-0102" },
-  sam: { name: "Sam Taylor", phone: "416-555-0103" },
+  alex: { name: "Alex Morgan", phone: "416-555-0101", role: "driver" },
+  jamie: { name: "Jamie Wilson", phone: "416-555-0102", role: "cook" },
+  sam: { name: "Sam Taylor", phone: "416-555-0103", role: "cashier" },
 };
-let rate = 1300;
+let rates: Record<EmployeeRole, number> = {
+  driver: 1300,
+  cook: 1300,
+  cashier: 1300,
+};
 const records: Record<string, Cashout> = {};
 let companies: Record<string, Company> = {
   supplier: { name: "Sample Food Supplier" },
@@ -130,16 +135,22 @@ export async function roster(): Promise<Record<string, Employee>> {
     ? (await get(ref(db, "employees"))).val() || {}
     : structuredClone(employees);
 }
-export async function getRate(): Promise<number> {
-  if (!db) return rate;
-  const value = (await get(ref(db, "settings/rateCents"))).val();
-  if (!Number.isInteger(value) || value <= 0)
-    throw new Error("The administrator needs to set the hourly rate.");
-  return value;
+export async function getRates(): Promise<Record<EmployeeRole, number>> {
+  if (!db) return { ...rates };
+  const value = (await get(ref(db, "settings"))).val() || {};
+  const result = {
+    driver: value.rateCents ?? 1300,
+    cook: value.cookRateCents ?? 1300,
+    cashier: value.cashierRateCents ?? 1300,
+  };
+  if (Object.values(result).some((rate) => !Number.isInteger(rate) || rate <= 0))
+    throw new Error("The administrator needs to set valid hourly rates.");
+  return result;
 }
-export async function setRate(value: number) {
-  if (db) await set(ref(db, "settings/rateCents"), value);
-  else rate = value;
+export async function setRate(role: EmployeeRole, value: number) {
+  const key = role === "driver" ? "rateCents" : `${role}RateCents`;
+  if (db) await set(ref(db, `settings/${key}`), value);
+  else rates[role] = value;
 }
 export async function saveEmployee(id: string, employee: Employee) {
   if (db) await set(ref(db, `employees/${id}`), employee);

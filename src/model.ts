@@ -1,4 +1,10 @@
-export type Employee = { name: string; phone?: string; active?: boolean };
+export type EmployeeRole = "driver" | "cook" | "cashier";
+export type Employee = {
+  name: string;
+  phone?: string;
+  role?: EmployeeRole; // Employees created before roles were added are drivers.
+  active?: boolean;
+};
 export type BillEntry = { amountCents: number; billNumber: string };
 export type Entry = number | BillEntry; // Historic records predate bill numbers.
 export type EntryList = Record<string, Entry>;
@@ -10,9 +16,10 @@ export type CashDelivery = {
   changeGivenCents?: number;
 };
 export type Shift = {
-  schemaVersion?: 2 | 3;
+  schemaVersion?: 2 | 3 | 4;
   employeeId: string;
   employeeName: string;
+  employeeRole?: EmployeeRole;
   start: number;
   end: number;
   rateCents: number;
@@ -125,6 +132,21 @@ export function totals(s: Shift) {
 export function validateShift(s: Shift) {
   if (!s.employeeId || !s.employeeName.trim())
     throw new Error("Select your name.");
+  if (
+    s.employeeRole !== undefined &&
+    !["driver", "cook", "cashier"].includes(s.employeeRole)
+  )
+    throw new Error("The employee role is invalid.");
+  if (
+    s.employeeRole &&
+    s.employeeRole !== "driver" &&
+    (Object.keys(s.deliveries || {}).length > 0 ||
+      Object.keys(s.tips || {}).length > 0 ||
+      Object.keys(s.onlineTips || {}).length > 0 ||
+      Object.keys(s.cashDeliveries || {}).length > 0 ||
+      (s.startingCashCents || 0) !== 0)
+  )
+    throw new Error("Cook and cashier cash-outs can only include worked hours.");
   if (
     !Number.isFinite(s.start) ||
     !Number.isFinite(s.end) ||

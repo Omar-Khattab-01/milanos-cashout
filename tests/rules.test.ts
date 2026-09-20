@@ -352,6 +352,26 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       }));
       await assertFails(update(ref(db("kiosk"), "storeCash/cash-1/corrections/edit-1"), { amountCents: 1 }));
       await assertFails(remove(ref(db("admin"), "storeCash/cash-1")));
+      await assertFails(set(ref(db("kiosk"), "storeCash/missing-bill"), {
+        ...cash,
+        id: "missing-bill",
+        billNumber: null,
+      }));
+      await env.withSecurityRulesDisabled(async (c) =>
+        set(ref(c.database(), "storeCash/legacy-cash"), {
+          id: "legacy-cash",
+          date: "2026-09-19",
+          amountCents: 2000,
+          createdAt: now - 86400000,
+          createdBy: "kiosk",
+        }),
+      );
+      await assertSucceeds(set(ref(db("kiosk"), "storeCash/legacy-cash/corrections/zero"), {
+        amountCents: 0,
+        editedAt: Date.now(),
+        editedBy: "kiosk",
+      }));
+      await assertFails(remove(ref(db("admin"), "storeCash/legacy-cash")));
 
       const sales = {
         date: "2026-09-20",

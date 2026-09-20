@@ -131,7 +131,7 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertFails(
         set(ref(db("kiosk"), "cashouts/shift"), { ...record, rateCents: 2000 }),
       );
-      for (const amount of [-1, 0, 1.2, "100", 100001])
+      for (const amount of [-1, 1.2, "100", 100001])
         await assertFails(
           set(ref(db("kiosk"), "cashouts/shift"), {
             ...record,
@@ -247,7 +247,7 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
         set(ref(db("kiosk"), "cashouts/shift"), {
           ...record,
           tips: { e000: { amountCents: 250, billNumber: "104", deliveryFeeCents: 0 } },
-          onlineTips: { e000: { amountCents: 350, billNumber: "006", deliveryFeeCents: 500 } },
+          onlineTips: { e000: { amountCents: 0, billNumber: "006", deliveryFeeCents: 500 } },
           startingCashCents: 5000,
           cashDeliveries: { e000: { ...cash, deliveryFeeCents: 250 } },
         }),

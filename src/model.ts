@@ -218,14 +218,18 @@ export function validateShift(s: Shift) {
     throw new Error("The shift start cannot be in the future.");
   if (!Number.isInteger(s.rateCents) || s.rateCents < 1 || s.rateCents > 100000)
     throw new Error("The hourly rate is invalid.");
-  for (const list of [s.deliveries, s.tips, s.onlineTips]) {
+  for (const [list, allowZero] of [
+    [s.deliveries, false],
+    [s.tips, true],
+    [s.onlineTips, true],
+  ] as const) {
     if (Object.keys(list || {}).length > 200)
       throw new Error("A maximum of 200 entries is supported per section.");
     if (
       Object.values(list || {}).some(
         (entry) =>
           !Number.isInteger(amountOf(entry)) ||
-          amountOf(entry) < 1 ||
+          amountOf(entry) < (allowZero ? 0 : 1) ||
           amountOf(entry) > 100000,
       )
     )

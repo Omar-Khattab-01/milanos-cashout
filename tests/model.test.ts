@@ -65,12 +65,12 @@ describe("cash-out accounting", () => {
   it("adds delivery fees embedded in tip, online-tip, and cash-order entries", () => {
     const result = totals({
       ...shift,
-      tips: { a: { billNumber: "10", amountCents: 200, deliveryFeeCents: 500 } },
+      tips: { a: { billNumber: "10", amountCents: 0, deliveryFeeCents: 500 } },
       onlineTips: { a: { billNumber: "11", amountCents: 300, deliveryFeeCents: 250 } },
       cashDeliveries: { a: { billNumber: "12", billTotalCents: 4000, deliveryFeeCents: 100 } },
     });
     expect(result.deliveries).toBe(3100);
-    expect(result.total).toBe(14650);
+    expect(result.total).toBe(14450);
   });
   it("rejects zero, reversed, oversized and invalid shifts", () => {
     for (const end of [

@@ -42,10 +42,10 @@ describe("cash-out accounting", () => {
       createdBy: "kiosk",
       corrections: {
         first: { amountCents: 3200, editedAt: 2, editedBy: "kiosk" },
-        latest: { amountCents: 3500, editedAt: 3, editedBy: "kiosk" },
+        latest: { amountCents: 0, editedAt: 3, editedBy: "kiosk" },
       },
     };
-    expect(storeCashAmount(entry)).toBe(3500);
+    expect(storeCashAmount(entry)).toBe(0);
     expect(entry.amountCents).toBe(3000);
   });
   it("calculates overnight hours, wages, and every entry", () => {
@@ -62,6 +62,16 @@ describe("cash-out accounting", () => {
   });
   it("rounds wages once at the end, to the nearest cent", () =>
     expect(totals({ ...shift, end: shift.start + 60000 }).wages).toBe(22));
+  it("adds delivery fees embedded in tip, online-tip, and cash-order entries", () => {
+    const result = totals({
+      ...shift,
+      tips: { a: { billNumber: "10", amountCents: 200, deliveryFeeCents: 500 } },
+      onlineTips: { a: { billNumber: "11", amountCents: 300, deliveryFeeCents: 250 } },
+      cashDeliveries: { a: { billNumber: "12", billTotalCents: 4000, deliveryFeeCents: 100 } },
+    });
+    expect(result.deliveries).toBe(3100);
+    expect(result.total).toBe(14650);
+  });
   it("rejects zero, reversed, oversized and invalid shifts", () => {
     for (const end of [
       shift.start,

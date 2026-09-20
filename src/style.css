@@ -518,6 +518,11 @@ a {
   grid-template-columns: 1fr 1fr auto;
   align-items: end;
 }
+.multi-input {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  align-items: end;
+}
 .cash-input {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr auto;
@@ -536,6 +541,7 @@ a {
 }
 @media (max-width: 650px) {
   .bill-input,
+  .multi-input,
   .cash-input {
     grid-template-columns: 1fr 1fr;
   }

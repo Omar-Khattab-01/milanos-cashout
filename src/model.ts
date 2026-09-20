@@ -5,12 +5,17 @@ export type Employee = {
   role?: EmployeeRole; // Employees created before roles were added are drivers.
   active?: boolean;
 };
-export type BillEntry = { amountCents: number; billNumber: string };
+export type BillEntry = {
+  amountCents: number;
+  billNumber: string;
+  deliveryFeeCents?: number;
+};
 export type Entry = number | BillEntry; // Historic records predate bill numbers.
 export type EntryList = Record<string, Entry>;
 export type CashDelivery = {
   billNumber: string;
   billTotalCents: number;
+  deliveryFeeCents?: number;
   // Kept optional so older cash-outs can still be displayed and corrected.
   cashCollectedCents?: number;
   changeGivenCents?: number;
@@ -97,6 +102,12 @@ export const billOf = (entry: Entry) =>
   typeof entry === "number" ? "Not recorded (legacy)" : entry.billNumber;
 export const total = (items: EntryList = {}) =>
   Object.values(items).reduce<number>((sum, entry) => sum + amountOf(entry), 0);
+export const entryDeliveryFees = (items: EntryList = {}) =>
+  Object.values(items).reduce<number>(
+    (sum, entry) =>
+      sum + (typeof entry === "number" ? 0 : entry.deliveryFeeCents || 0),
+    0,
+  );
 export function billNumber(value: string) {
   const bill = value.trim();
   if (!/^[A-Za-z0-9-]{1,40}$/.test(bill))
@@ -152,7 +163,14 @@ export function cashTotals(s: Shift) {
 export function totals(s: Shift) {
   const minutes = (s.end - s.start) / 60000;
   const wages = Math.round((minutes * s.rateCents) / 60);
-  const deliveries = total(s.deliveries),
+  const deliveries =
+      total(s.deliveries) +
+      entryDeliveryFees(s.tips) +
+      entryDeliveryFees(s.onlineTips) +
+      Object.values(s.cashDeliveries || {}).reduce<number>(
+        (sum, entry) => sum + (entry.deliveryFeeCents || 0),
+        0,
+      ),
     tips = total(s.tips),
     onlineTips = total(s.onlineTips);
   const cashTips = cashTotals(s).tips;
@@ -212,8 +230,16 @@ export function validateShift(s: Shift) {
       )
     )
       throw new Error("An entry amount is invalid.");
-    for (const entry of Object.values(list || {}))
-      if (typeof entry !== "number") billNumber(entry.billNumber);
+    for (const entry of Object.values(list || {})) {
+      if (typeof entry === "number") continue;
+      billNumber(entry.billNumber);
+      if (
+        !Number.isInteger(entry.deliveryFeeCents ?? 0) ||
+        (entry.deliveryFeeCents ?? 0) < 0 ||
+        (entry.deliveryFeeCents ?? 0) > 100000
+      )
+        throw new Error("A delivery fee is invalid.");
+    }
   }
   if (
     !Number.isInteger(s.startingCashCents ?? 0) ||
@@ -232,6 +258,12 @@ export function validateShift(s: Shift) {
       e.billTotalCents > 100000
     )
       throw new Error("Cash-delivery totals are invalid.");
+    if (
+      !Number.isInteger(e.deliveryFeeCents ?? 0) ||
+      (e.deliveryFeeCents ?? 0) < 0 ||
+      (e.deliveryFeeCents ?? 0) > 100000
+    )
+      throw new Error("A cash-delivery fee is invalid.");
     const historic = e.cashCollectedCents !== undefined;
     if (
       historic &&

@@ -246,9 +246,10 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertSucceeds(
         set(ref(db("kiosk"), "cashouts/shift"), {
           ...record,
-          onlineTips: { e000: { amountCents: 350, billNumber: "006" } },
+          tips: { e000: { amountCents: 250, billNumber: "104", deliveryFeeCents: 0 } },
+          onlineTips: { e000: { amountCents: 350, billNumber: "006", deliveryFeeCents: 500 } },
           startingCashCents: 5000,
-          cashDeliveries: { e000: cash },
+          cashDeliveries: { e000: { ...cash, deliveryFeeCents: 250 } },
         }),
       );
       for (const payload of [
@@ -260,6 +261,7 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
         },
         { ...record, id: "bad", startingCashCents: -1 },
         { ...record, id: "bad", tips: { e000: 200 } },
+        { ...record, id: "bad", tips: { e000: { amountCents: 200, billNumber: "1", deliveryFeeCents: -1 } } },
       ])
         await assertFails(set(ref(db("kiosk"), "cashouts/bad"), payload));
     });
@@ -344,7 +346,7 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertFails(remove(ref(db("kiosk"), "storeCash/cash-1")));
       await assertFails(set(ref(db("stranger"), "storeCash/cash-2"), { ...cash, id: "cash-2", createdBy: "stranger" }));
       await assertSucceeds(set(ref(db("kiosk"), "storeCash/cash-1/corrections/edit-1"), {
-        amountCents: 3500,
+        amountCents: 0,
         editedAt: Date.now(),
         editedBy: "kiosk",
       }));

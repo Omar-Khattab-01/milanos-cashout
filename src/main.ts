@@ -1,7 +1,7 @@
 import "./style.css";
 import * as store from "./store";
 import {
-  amountOf, billNumber, billOf, cashTotals, cents, current, hours,
+  amountOf, billNumber, billOf, cashCents, cashTotals, cents, current, hours,
   localInput, money, salesCents, storeCashAmount, total, totals, validateShift,
   type CashDelivery, type Cashout, type CashoutReview, type Company, type Employee,
   type DailySales, type EmployeeRole, type EntryList, type Expense, type ReviewStatus,
@@ -50,6 +50,7 @@ let pending: Cashout | null = null;
 let editId = "";
 let editingEmployeeId = "";
 let reason = "";
+let editingListEntry: { kind: ListKind; id: string } | null = null;
 let filterEmployee = "";
 let filterDate = "";
 const entryInputs: Record<string, Record<string, string>> = {};
@@ -97,19 +98,22 @@ function receipt(record: Cashout) {
   return `<div class="receipt"><h2>MILANO’S PIZZERIA</h2><p>${roleName(role).toUpperCase()} CASH-OUT</p><hr><dl><dt>Employee</dt><dd>${esc(s.employeeName)}</dd><dt>Role</dt><dd>${roleName(role)}</dd><dt>Shift date</dt><dd>${date(s.start)}</dd><dt>Started</dt><dd>${time(s.start)}</dd><dt>Ended</dt><dd>${date(s.end) !== date(s.start) ? date(s.end) + " " : ""}${time(s.end)}</dd><dt>Hours</dt><dd>${hours(t.minutes)}</dd></dl><hr><dl><dt>Hourly pay</dt><dd>${money(t.wages)}</dd>${driverTotals}</dl><div class="grand"><span>Total pay</span><strong>${money(t.total)}</strong></div>${driverCash}<p style="font-size:10px">${esc(record.id.slice(0, 8).toUpperCase())}${record.corrections ? " · CORRECTED" : ""}${store.demo ? " · DEMO — NOT A PAYROLL RECORD" : ""}</p></div>`;
 }
 
-function entryField(kind: ListKind, name: string, label: string, placeholder: string, moneyField = false) {
+function entryField(kind: ListKind, name: string, label: string, placeholder: string, moneyField = false, required = true) {
   const value = entryInputs[kind]?.[name] ?? "";
-  return `<div><label for="${kind}-${name}">${label}</label><input id="${kind}-${name}" name="${name}" aria-label="${kind} ${label}" ${moneyField ? 'inputmode="decimal"' : 'inputmode="numeric" maxlength="40"'} placeholder="${placeholder}" value="${esc(value)}" autocomplete="off" required></div>`;
+  return `<div><label for="${kind}-${name}">${label}</label><input id="${kind}-${name}" name="${name}" aria-label="${kind} ${label}" ${moneyField ? 'inputmode="decimal"' : 'inputmode="numeric" maxlength="40"'} placeholder="${placeholder}" value="${esc(value)}" autocomplete="off" ${required ? "required" : ""}></div>`;
 }
 
 function entrySection(kind: EntryKind, title: string, step: number) {
   const list = Object.entries(draft[kind]);
-  return `<section class="card"><div class="row"><div class="section-head" style="margin:0"><span class="step">${step}</span><div><h2>${title}</h2><span class="subtle">Bill number → Space → amount → Enter.</span></div></div>${confirmed[kind] ? '<span class="pill">Done</span>' : ""}</div>${!confirmed[kind] ? `<form data-form="entry" data-kind="${kind}" class="entry-input bill-input">${entryField(kind, "billNumber", "Bill number", "e.g. 1042")}${entryField(kind, "amount", "Amount", "0.00", true)}<button class="primary" type="submit">+ Add</button></form>` : ""}${list.length ? `<ol class="entry-list">${list.map(([id, entry], i) => `<li><span class="subtle">${i + 1}. Bill ${esc(billOf(entry))}</span><span>${money(amountOf(entry))} ${!confirmed[kind] ? `<button data-action="remove" data-kind="${kind}" data-id="${id}">×</button>` : ""}</span></li>`).join("")}</ol>` : '<p class="subtle">No entries yet.</p>'}<div class="row entry-footer"><span class="subtle">${list.length} entries · <strong>${money(total(draft[kind]))}</strong></span><button data-action="done" data-kind="${kind}">${confirmed[kind] ? "Edit entries" : "Done"}</button></div></section>`;
+  const supportsFee = kind !== "deliveries";
+  const editing = editingListEntry?.kind === kind;
+  return `<section class="card"><div class="row"><div class="section-head" style="margin:0"><span class="step">${step}</span><div><h2>${title}</h2><span class="subtle">Bill number → Space → amount → Enter.${supportsFee ? " Delivery fee is optional." : ""}</span></div></div>${confirmed[kind] ? '<span class="pill">Done</span>' : ""}</div>${!confirmed[kind] ? `<form data-form="entry" data-kind="${kind}" class="entry-input ${supportsFee ? "multi-input" : "bill-input"}">${entryField(kind, "billNumber", "Bill number", "e.g. 1042")}${entryField(kind, "amount", "Amount", "0.00", true)}${supportsFee ? entryField(kind, "deliveryFee", "Delivery fee", "0.00", true, false) : ""}<button class="primary" type="submit">${editing ? "Save changes" : "+ Add"}</button></form>` : ""}${list.length ? `<ol class="entry-list">${list.map(([id, entry], i) => { const fee = typeof entry === "number" ? 0 : entry.deliveryFeeCents || 0; return `<li><span class="subtle">${i + 1}. Bill ${esc(billOf(entry))}${supportsFee ? ` · Delivery fee ${money(fee)}` : ""}</span><span>${money(amountOf(entry))} ${!confirmed[kind] ? `<button data-action="edit-list-entry" data-kind="${kind}" data-id="${id}">Edit</button><button data-action="remove" data-kind="${kind}" data-id="${id}">×</button>` : ""}</span></li>`; }).join("")}</ol>` : '<p class="subtle">No entries yet.</p>'}<div class="row entry-footer"><span class="subtle">${list.length} entries · <strong>${money(total(draft[kind]))}</strong></span><button data-action="done" data-kind="${kind}">${confirmed[kind] ? "Edit entries" : "Done"}</button></div></section>`;
 }
 
 function cashSection() {
   const entries = Object.entries(draft.cashDeliveries), t = cashTotals(shift());
-  return `<section class="card"><div class="section-head"><span class="step">5</span><div><h2>Cash flow</h2><span class="subtle">Starting cash and cash-paid bills.</span></div></div><label for="startingCash">Starting cash taken</label><input id="startingCash" inputmode="decimal" data-draft="startingCash" value="${esc(draft.startingCash)}"><p class="subtle">Leave at $0.00 if no cash was taken. A bill can also appear in another section when a customer splits payment.</p><h3>Cash deliveries</h3>${!confirmed.cashDeliveries ? `<form data-form="cash-delivery" data-kind="cashDeliveries" class="entry-input bill-input">${entryField("cashDeliveries", "billNumber", "Bill number", "e.g. 1042")}${entryField("cashDeliveries", "billTotal", "Bill total", "0.00", true)}<button type="submit" class="primary">+ Add</button></form>` : ""}${entries.length ? `<ol class="entry-list">${entries.map(([id, e]) => `<li><span>Bill ${esc(e.billNumber)}</span><span>${money(e.billTotalCents)} ${!confirmed.cashDeliveries ? `<button data-action="remove" data-kind="cashDeliveries" data-id="${id}">×</button>` : ""}</span></li>`).join("")}</ol>` : '<p class="subtle">No cash deliveries entered.</p>'}<div class="entry-footer"><div class="row"><span class="subtle">${entries.length} cash bills · <strong>${money(t.billTotals)}</strong></span><button data-action="done" data-kind="cashDeliveries">${confirmed.cashDeliveries ? "Add / edit cash deliveries" : "Done"}</button></div></div></section>`;
+  const editing = editingListEntry?.kind === "cashDeliveries";
+  return `<section class="card"><div class="section-head"><span class="step">5</span><div><h2>Cash flow</h2><span class="subtle">Starting cash and cash-paid bills.</span></div></div><label for="startingCash">Starting cash taken</label><input id="startingCash" inputmode="decimal" data-draft="startingCash" value="${esc(draft.startingCash)}"><p class="subtle">Leave at $0.00 if no cash was taken. A bill can also appear in another section when a customer splits payment.</p><h3>Cash deliveries</h3>${!confirmed.cashDeliveries ? `<form data-form="cash-delivery" data-kind="cashDeliveries" class="entry-input multi-input">${entryField("cashDeliveries", "billNumber", "Bill number", "e.g. 1042")}${entryField("cashDeliveries", "billTotal", "Bill total", "0.00", true)}${entryField("cashDeliveries", "deliveryFee", "Delivery fee", "0.00", true, false)}<button type="submit" class="primary">${editing ? "Save changes" : "+ Add"}</button></form>` : ""}${entries.length ? `<ol class="entry-list">${entries.map(([id, e]) => `<li><span>Bill ${esc(e.billNumber)} · Delivery fee ${money(e.deliveryFeeCents || 0)}</span><span>${money(e.billTotalCents)} ${!confirmed.cashDeliveries ? `<button data-action="edit-list-entry" data-kind="cashDeliveries" data-id="${id}">Edit</button><button data-action="remove" data-kind="cashDeliveries" data-id="${id}">×</button>` : ""}</span></li>`).join("")}</ol>` : '<p class="subtle">No cash deliveries entered.</p>'}<div class="entry-footer"><div class="row"><span class="subtle">${entries.length} cash bills · <strong>${money(t.billTotals)}</strong></span><button data-action="done" data-kind="cashDeliveries">${confirmed.cashDeliveries ? "Add / edit cash deliveries" : "Done"}</button></div></div></section>`;
 }
 
 function cashout() {
@@ -217,8 +221,8 @@ function detailView() {
   if (!selected) return "";
   const s = current(selected);
   const status = reviewState(selected.id);
-  const items = (label: string, list: EntryList = {}) => `<details><summary>${label} · ${Object.keys(list).length} entries · ${money(total(list))}</summary><ol>${Object.values(list).map((entry) => `<li style="padding:8px">Bill ${esc(billOf(entry))} · ${money(amountOf(entry))}</li>`).join("") || '<p class="subtle">No entries.</p>'}</ol></details>`;
-  const cashItems = (value: Shift) => `<details><summary>Cash deliveries · ${Object.keys(value.cashDeliveries || {}).length} bills · ${money(cashTotals(value).billTotals)}</summary><p>Starting cash: ${money(value.startingCashCents || 0)}</p><ol>${Object.values(value.cashDeliveries || {}).map((e) => `<li>Bill ${esc(e.billNumber)} · ${money(e.billTotalCents)}</li>`).join("") || "<p>No cash deliveries.</p>"}</ol></details>`;
+  const items = (label: string, list: EntryList = {}) => `<details><summary>${label} · ${Object.keys(list).length} entries · ${money(total(list))}</summary><ol>${Object.values(list).map((entry) => `<li style="padding:8px">Bill ${esc(billOf(entry))} · ${money(amountOf(entry))}${typeof entry !== "number" && entry.deliveryFeeCents !== undefined ? ` · Delivery fee ${money(entry.deliveryFeeCents)}` : ""}</li>`).join("") || '<p class="subtle">No entries.</p>'}</ol></details>`;
+  const cashItems = (value: Shift) => `<details><summary>Cash deliveries · ${Object.keys(value.cashDeliveries || {}).length} bills · ${money(cashTotals(value).billTotals)}</summary><p>Starting cash: ${money(value.startingCashCents || 0)}</p><ol>${Object.values(value.cashDeliveries || {}).map((e) => `<li>Bill ${esc(e.billNumber)} · ${money(e.billTotalCents)} · Delivery fee ${money(e.deliveryFeeCents || 0)}</li>`).join("") || "<p>No cash deliveries.</p>"}</ol></details>`;
   const reviewActions = status === "reviewed"
     ? `<div class="row"><span>${reviewBadge(selected.id)}</span><span class="review-check" aria-label="Reviewed">✓</span></div>`
     : `<div class="row"><span>${reviewBadge(selected.id)}</span><div class="row"><button class="primary" data-action="set-review" data-status="reviewed">Mark Paid</button>${status === "not_reviewed" ? '<button data-action="set-review" data-status="under_review">Partially Paid</button>' : ""}</div></div>`;
@@ -320,20 +324,22 @@ root.addEventListener("submit", (event) => {
     switch (form.dataset.form) {
       case "entry": {
         const kind = form.dataset.kind as EntryKind;
-        if (Object.keys(draft[kind]).length >= 200) throw new Error("Maximum 200 entries per section.");
+        const editingId = editingListEntry?.kind === kind ? editingListEntry.id : "";
+        if (!editingId && Object.keys(draft[kind]).length >= 200) throw new Error("Maximum 200 entries per section.");
         const bill = billNumber(String(data.get("billNumber")));
-        if (Object.values(draft[kind]).some((e) => typeof e !== "number" && e.billNumber.toLowerCase() === bill.toLowerCase())) throw new Error("That bill is already in this section.");
-        const id = Array.from({ length: 200 }, (_, i) => "e" + String(i).padStart(3, "0")).find((key) => !(key in draft[kind]))!;
-        draft[kind][id] = { billNumber: bill, amountCents: cents(String(data.get("amount"))) };
-        entryInputs[kind] = {}; pending = null; break;
+        if (Object.entries(draft[kind]).some(([id, e]) => id !== editingId && typeof e !== "number" && e.billNumber.toLowerCase() === bill.toLowerCase())) throw new Error("That bill is already in this section.");
+        const id = editingId || Array.from({ length: 200 }, (_, i) => "e" + String(i).padStart(3, "0")).find((key) => !(key in draft[kind]))!;
+        draft[kind][id] = { billNumber: bill, amountCents: cents(String(data.get("amount"))), ...(kind !== "deliveries" ? { deliveryFeeCents: cashCents(String(data.get("deliveryFee") || "0")) } : {}) };
+        entryInputs[kind] = {}; editingListEntry = null; pending = null; break;
       }
       case "cash-delivery": {
+        const editingId = editingListEntry?.kind === "cashDeliveries" ? editingListEntry.id : "";
         const bill = billNumber(String(data.get("billNumber")));
-        if (Object.values(draft.cashDeliveries).some((e) => e.billNumber.toLowerCase() === bill.toLowerCase())) throw new Error("That cash bill is already entered in this section.");
-        if (Object.keys(draft.cashDeliveries).length >= 200) throw new Error("Maximum 200 cash deliveries.");
-        const id = Array.from({ length: 200 }, (_, i) => "e" + String(i).padStart(3, "0")).find((key) => !(key in draft.cashDeliveries))!;
-        draft.cashDeliveries[id] = { billNumber: bill, billTotalCents: cents(String(data.get("billTotal"))) };
-        entryInputs.cashDeliveries = {}; pending = null; break;
+        if (Object.entries(draft.cashDeliveries).some(([id, e]) => id !== editingId && e.billNumber.toLowerCase() === bill.toLowerCase())) throw new Error("That cash bill is already entered in this section.");
+        if (!editingId && Object.keys(draft.cashDeliveries).length >= 200) throw new Error("Maximum 200 cash deliveries.");
+        const id = editingId || Array.from({ length: 200 }, (_, i) => "e" + String(i).padStart(3, "0")).find((key) => !(key in draft.cashDeliveries))!;
+        draft.cashDeliveries[id] = { billNumber: bill, billTotalCents: cents(String(data.get("billTotal"))), deliveryFeeCents: cashCents(String(data.get("deliveryFee") || "0")) };
+        entryInputs.cashDeliveries = {}; editingListEntry = null; pending = null; break;
       }
       case "login": await store.login(String(data.get("pin"))); await afterLogin(); break;
       case "device-login":
@@ -390,7 +396,6 @@ root.addEventListener("submit", (event) => {
         const id = form.dataset.id!, entry = storeCashEntries.find((item) => item.id === id);
         if (!entry) throw new Error("That cash entry could not be found.");
         const amountCents = salesCents(String(data.get("amount")));
-        if (amountCents <= 0) throw new Error("Enter a cash amount greater than zero.");
         await store.correctStoreCash(id, { amountCents, editedAt: Date.now(), editedBy: store.uid() });
         storeCashEntries = await store.getStoreCash(); editingStoreCashId = "";
         message = `Bill ${entry.billNumber || "Not recorded"} corrected to ${money(amountCents)}.`; success = true; break;
@@ -450,6 +455,7 @@ root.addEventListener("click", (event) => {
       case "cashout-role":
         cashoutRole = button.dataset.role as EmployeeRole;
         draft = fresh();
+        editingListEntry = null;
         confirmed = emptyConfirmed();
         pending = null;
         break;
@@ -460,7 +466,27 @@ root.addEventListener("click", (event) => {
         if (Array.from(root.querySelectorAll<HTMLInputElement>(`form[data-kind="${kind}"] input`)).some((input) => input.value.trim())) throw new Error("Add or clear the entry you typed before choosing Done.");
         confirmed[kind] = !confirmed[kind]; break;
       }
-      case "remove": delete draft[button.dataset.kind as ListKind][button.dataset.id!]; pending = null; break;
+      case "edit-list-entry": {
+        const kind = button.dataset.kind as ListKind, id = button.dataset.id!;
+        editingListEntry = { kind, id }; confirmed[kind] = false;
+        if (kind === "cashDeliveries") {
+          const entry = draft.cashDeliveries[id];
+          entryInputs[kind] = { billNumber: entry.billNumber, billTotal: (entry.billTotalCents / 100).toFixed(2), deliveryFee: ((entry.deliveryFeeCents || 0) / 100).toFixed(2) };
+        } else {
+          const entry = draft[kind][id];
+          if (typeof entry === "number") throw new Error("This legacy entry can only be changed from History.");
+          entryInputs[kind] = { billNumber: entry.billNumber, amount: (entry.amountCents / 100).toFixed(2), deliveryFee: ((entry.deliveryFeeCents || 0) / 100).toFixed(2) };
+        }
+        break;
+      }
+      case "remove": {
+        const kind = button.dataset.kind as ListKind;
+        delete draft[kind][button.dataset.id!];
+        if (editingListEntry?.kind === kind && editingListEntry.id === button.dataset.id) {
+          editingListEntry = null; entryInputs[kind] = {};
+        }
+        pending = null; break;
+      }
       case "save": {
         confirmed = { deliveries: true, tips: true, onlineTips: true, cashDeliveries: true };
         const s = shift(); validateShift(s);
@@ -472,10 +498,10 @@ root.addEventListener("click", (event) => {
           pending ||= { ...s, id: crypto.randomUUID(), createdBy: store.uid(), createdAt: Date.now() };
           await store.save(pending); selected = structuredClone(pending); view = "saved"; pending = null;
         }
-        draft = fresh(); Object.keys(entryInputs).forEach((key) => delete entryInputs[key]); confirmed = emptyConfirmed(); break;
+        draft = fresh(); editingListEntry = null; Object.keys(entryInputs).forEach((key) => delete entryInputs[key]); confirmed = emptyConfirmed(); break;
       }
       case "print": print(); break;
-      case "new": selected = null; draft = fresh(); confirmed = emptyConfirmed(); [roster, rates] = await Promise.all([store.roster(), store.getRates()]); view = "cashout"; break;
+      case "new": selected = null; draft = fresh(); editingListEntry = null; confirmed = emptyConfirmed(); [roster, rates] = await Promise.all([store.roster(), store.getRates()]); view = "cashout"; break;
       case "demo-login": await store.login(""); await afterLogin(); break;
       case "demo-device-login": view = deviceTarget; message = "Demo computer authorized."; success = true; break;
       case "edit-employee": editingEmployeeId = button.dataset.id!; break;
@@ -511,7 +537,7 @@ root.addEventListener("click", (event) => {
         draft = { employeeId: s.employeeId, startDate: localInput(s.start).slice(0, 10), endDate: localInput(s.end).slice(0, 10), start: localInput(s.start).slice(11), end: localInput(s.end).slice(11), deliveries: { ...s.deliveries }, tips: { ...s.tips }, onlineTips: { ...s.onlineTips }, startingCash: ((s.startingCashCents || 0) / 100).toFixed(2), cashDeliveries: { ...s.cashDeliveries } };
         confirmed = { deliveries: true, tips: true, onlineTips: true, cashDeliveries: true }; reason = ""; view = "cashout"; break;
       }
-      case "cancel-edit": editId = ""; draft = fresh(); confirmed = emptyConfirmed(); view = "detail"; break;
+      case "cancel-edit": editId = ""; draft = fresh(); editingListEntry = null; confirmed = emptyConfirmed(); view = "detail"; break;
       case "load-all": [records, reviews] = await Promise.all([store.allHistory(), store.getReviews()]); break;
       case "clear-filters": filterEmployee = ""; filterDate = ""; break;
     }

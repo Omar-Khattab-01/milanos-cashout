@@ -579,6 +579,12 @@ a {
   font-size: 22px;
   font-weight: 800;
 }
+.balanced {
+  color: #198447;
+}
+.unbalanced {
+  color: var(--red);
+}
 .role-tabs {
   max-width: 520px;
   margin: 0 0 24px;

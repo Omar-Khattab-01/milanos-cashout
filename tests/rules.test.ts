@@ -329,5 +329,35 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertFails(get(ref(db("kiosk"), "expenses")));
       await assertSucceeds(remove(ref(db("admin"), "expenses/order")));
     });
+    it("lets paired store computers add cash and keeps daily sales admin-only", async () => {
+      const cash = {
+        id: "cash-1",
+        date: "2026-09-20",
+        amountCents: 3299,
+        createdAt: Date.now(),
+        createdBy: "kiosk",
+      };
+      await assertSucceeds(set(ref(db("kiosk"), "storeCash/cash-1"), cash));
+      await assertSucceeds(get(ref(db("kiosk"), "storeCash")));
+      await assertFails(update(ref(db("kiosk"), "storeCash/cash-1"), { amountCents: 1 }));
+      await assertFails(remove(ref(db("kiosk"), "storeCash/cash-1")));
+      await assertFails(set(ref(db("stranger"), "storeCash/cash-2"), { ...cash, id: "cash-2", createdBy: "stranger" }));
+      await assertSucceeds(remove(ref(db("admin"), "storeCash/cash-1")));
+
+      const sales = {
+        date: "2026-09-20",
+        pcSalesCents: 100000,
+        onlineOrdersCents: 20000,
+        cloverGrossCents: 80000,
+        onlineReceivableCents: 10000,
+        updatedAt: Date.now(),
+        updatedBy: "admin",
+      };
+      await assertFails(set(ref(db("kiosk"), "dailySales/2026-09-20"), { ...sales, updatedBy: "kiosk" }));
+      await assertFails(get(ref(db("kiosk"), "dailySales")));
+      await assertSucceeds(set(ref(db("admin"), "dailySales/2026-09-20"), sales));
+      await assertFails(set(ref(db("admin"), "dailySales/2026-09-20"), { ...sales, pcSalesCents: -1 }));
+      await assertSucceeds(remove(ref(db("admin"), "dailySales/2026-09-20")));
+    });
   },
 );

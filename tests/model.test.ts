@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   cents,
+  salesCents,
   cashTotals,
   billNumber,
   totals,
@@ -23,6 +24,12 @@ describe("cash-out accounting", () => {
     expect(cents("7.50")).toBe(750);
     for (const n of ["1.005", "-3", "0", "1e2", "NaN", "1001"])
       expect(() => cents(n)).toThrow();
+  });
+  it("accepts zero and larger daily sales amounts without losing cents", () => {
+    expect(salesCents("0.00")).toBe(0);
+    expect(salesCents("12345.67")).toBe(1234567);
+    for (const n of ["-1", "1.005", "100000.01"])
+      expect(() => salesCents(n)).toThrow();
   });
   it("calculates overnight hours, wages, and every entry", () => {
     validateShift(shift);

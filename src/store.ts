@@ -24,10 +24,12 @@ import type {
   CashoutReview,
   Company,
   Correction,
+  DailySales,
   Employee,
   EmployeeRole,
   Expense,
   ReviewStatus,
+  StoreCashEntry,
 } from "./model";
 const env = import.meta.env;
 export const demo = !env.VITE_FIREBASE_API_KEY;
@@ -62,6 +64,8 @@ let companies: Record<string, Company> = {
 };
 const expenseRecords: Record<string, Expense> = {};
 const reviewRecords: Record<string, CashoutReview> = {};
+const storeCashRecords: Record<string, StoreCashEntry> = {};
+const dailySalesRecords: Record<string, DailySales> = {};
 export const uid = () =>
   auth?.currentUser?.uid || kioskAuth?.currentUser?.uid || "demo-driver";
 export async function init() {
@@ -269,4 +273,33 @@ export async function saveExpense(expense: Expense) {
 export async function deleteExpense(id: string) {
   if (db) await remove(ref(db, `expenses/${id}`));
   else delete expenseRecords[id];
+}
+export async function getStoreCash(): Promise<StoreCashEntry[]> {
+  const value = db
+    ? (await get(ref(db, "storeCash"))).val() || {}
+    : storeCashRecords;
+  return (Object.values(value) as StoreCashEntry[]).sort(
+    (a, b) => b.createdAt - a.createdAt,
+  );
+}
+export async function saveStoreCash(entry: StoreCashEntry) {
+  if (db) await set(ref(db, `storeCash/${entry.id}`), entry);
+  else storeCashRecords[entry.id] = structuredClone(entry);
+}
+export async function deleteStoreCash(id: string) {
+  if (db) await remove(ref(db, `storeCash/${id}`));
+  else delete storeCashRecords[id];
+}
+export async function getDailySales(): Promise<Record<string, DailySales>> {
+  return db
+    ? (await get(ref(db, "dailySales"))).val() || {}
+    : structuredClone(dailySalesRecords);
+}
+export async function saveDailySales(record: DailySales) {
+  if (db) await set(ref(db, `dailySales/${record.date}`), record);
+  else dailySalesRecords[record.date] = structuredClone(record);
+}
+export async function deleteDailySales(date: string) {
+  if (db) await remove(ref(db, `dailySales/${date}`));
+  else delete dailySalesRecords[date];
 }

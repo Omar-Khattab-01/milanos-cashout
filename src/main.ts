@@ -2,9 +2,10 @@ import "./style.css";
 import * as store from "./store";
 import {
   amountOf, billNumber, billOf, cashTotals, cents, current, hours,
-  localInput, money, total, totals, validateShift,
+  localInput, money, salesCents, total, totals, validateShift,
   type CashDelivery, type Cashout, type CashoutReview, type Company, type Employee,
-  type EmployeeRole, type EntryList, type Expense, type ReviewStatus, type Shift,
+  type DailySales, type EmployeeRole, type EntryList, type Expense, type ReviewStatus,
+  type Shift, type StoreCashEntry,
 } from "./model";
 
 const root = document.querySelector<HTMLDivElement>("#app")!;
@@ -23,6 +24,7 @@ const time = (value: number) => new Date(value).toLocaleTimeString("en-CA", {
 type EntryKind = "deliveries" | "tips" | "onlineTips";
 type ListKind = EntryKind | "cashDeliveries";
 type ProtectedView = "history" | "employees" | "expenses";
+type DeviceView = "cashout" | "store-cash";
 
 let roster: Record<string, Employee> = {};
 let rates: Record<EmployeeRole, number> = { driver: 1300, cook: 1300, cashier: 1300 };
@@ -30,6 +32,7 @@ let cashoutRole: EmployeeRole = "driver";
 let admin = false;
 let view = "cashout";
 let loginTarget: ProtectedView = "history";
+let deviceTarget: DeviceView = "cashout";
 let message = "";
 let success = false;
 let busy = false;
@@ -38,6 +41,8 @@ let reviews: Record<string, CashoutReview> = {};
 let selected: Cashout | null = null;
 let companies: Record<string, Company> = {};
 let expenses: Expense[] = [];
+let storeCashEntries: StoreCashEntry[] = [];
+let dailySales: Record<string, DailySales> = {};
 let expenseMonth = today().slice(0, 7);
 let customDates = false;
 let pending: Cashout | null = null;
@@ -129,7 +134,14 @@ function loginView() {
 }
 
 function deviceLoginView() {
-  return `<section class="card login"><div class="eyebrow">Store computer setup</div><h1>Unlock driver cash-outs</h1><p class="subtle">Enter the admin PIN once to authorize this computer. The cash-out page will stay unlocked in this browser.</p>${store.demo ? '<button class="primary wide" data-action="demo-device-login">Authorize demo computer</button>' : '<form data-form="device-login"><label for="device-pin">Admin PIN</label><input id="device-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="off" placeholder="Enter 4-digit PIN" required autofocus><button class="primary wide" type="submit">Authorize this computer</button></form>'}</section>`;
+  return `<section class="card login"><div class="eyebrow">Store computer setup</div><h1>Unlock employee tools</h1><p class="subtle">Enter the admin PIN once to authorize this computer. Cash-outs and in-store cash entry will stay unlocked in this browser.</p>${store.demo ? '<button class="primary wide" data-action="demo-device-login">Authorize demo computer</button>' : '<form data-form="device-login"><label for="device-pin">Admin PIN</label><input id="device-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="off" placeholder="Enter 4-digit PIN" required autofocus><button class="primary wide" type="submit">Authorize this computer</button></form>'}</section>`;
+}
+
+function storeCashView() {
+  const day = today();
+  const entries = storeCashEntries.filter((entry) => entry.date === day);
+  const totalReceived = entries.reduce((sum, entry) => sum + entry.amountCents, 0);
+  return `<div class="intro"><div><div class="eyebrow">Cashier desk</div><h1>Cash received in store</h1><span class="subtle">Record each cash order when payment is received. No cashier name is required.</span></div><span class="pill">${esc(day)}</span></div><div class="split"><section class="card"><h2>Add cash order</h2><p class="subtle">Today’s date is added automatically.</p><form data-form="store-cash"><label for="store-cash-amount">Amount received</label><input id="store-cash-amount" name="amount" inputmode="decimal" placeholder="0.00" autocomplete="off" required autofocus><button class="primary wide" type="submit" style="margin-top:16px">Save cash received</button></form></section><section class="card"><h2>Today’s total</h2><div class="grand"><span>Cash received</span><strong>${money(totalReceived)}</strong></div><p class="subtle">${entries.length} ${entries.length === 1 ? "entry" : "entries"} today</p></section></div><section class="card table-wrap"><h2>Today’s entries</h2>${entries.length ? `<table><thead><tr><th>Time</th><th>Amount</th></tr></thead><tbody>${entries.map((entry) => `<tr><td>${time(entry.createdAt)}</td><td><strong>${money(entry.amountCents)}</strong></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No in-store cash has been entered today.</div>'}</section>`;
 }
 
 function reviewState(id: string): "not_reviewed" | ReviewStatus {
@@ -154,6 +166,24 @@ function employeeView() {
     return `<div class="employee"><div class="row"><span class="avatar">${esc(employee.name[0])}</span><div><strong>${esc(employee.name)}</strong><br><span class="subtle">${roleName(employeeRole(employee))} · ${esc(employee.phone || "No phone number")}</span></div></div><div class="row"><button data-action="edit-employee" data-id="${id}">Edit</button><button data-action="delete-employee" data-id="${id}">Delete</button></div></div>`;
   }).join("");
   return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Employees & pay</h1><span class="subtle">Assign each employee as a driver, cook, or cashier.</span></div></div><div class="split"><section class="card"><h2>Employees</h2>${employeeRows || '<p class="subtle">No employees yet.</p>'}<form data-form="employee" style="margin-top:24px"><label for="name">Add employee</label><div class="fields"><div><input id="name" name="name" placeholder="Full name" maxlength="80" required></div><div><input id="phone" name="phone" type="tel" placeholder="Phone number" maxlength="30" required></div><div class="full"><select name="role" aria-label="Employee role" required><option value="driver">Driver</option><option value="cook">Cook</option><option value="cashier">Cashier</option></select></div></div><button class="primary" type="submit">Add employee</button></form><p class="subtle">Deleting removes the employee from the cash-out list. Saved shift history remains.</p></section><section class="card"><h2>Store computer</h2><p class="subtle">Authorize this computer once so employees can use it without signing in.</p><button data-action="authorize-device">Authorize this store computer</button><hr style="border:0;border-top:1px solid var(--line);margin:24px 0"><h2>Hourly pay rates</h2><p class="subtle">Set one rate for each role. Saved shifts keep their original rate.</p><form data-form="rates"><label for="driver-rate">Driver</label><input id="driver-rate" name="driver" inputmode="decimal" value="${(rates.driver / 100).toFixed(2)}" required><label for="cook-rate">Cook</label><input id="cook-rate" name="cook" inputmode="decimal" value="${(rates.cook / 100).toFixed(2)}" required><label for="cashier-rate">Cashier</label><input id="cashier-rate" name="cashier" inputmode="decimal" value="${(rates.cashier / 100).toFixed(2)}" required><button type="submit" class="primary wide">Save hourly rates</button></form></section></div>`;
+}
+
+function dailySalesView() {
+  const monthStoreCash = storeCashEntries.filter((entry) => entry.date.startsWith(expenseMonth));
+  const monthSales = Object.values(dailySales).filter((entry) => entry.date.startsWith(expenseMonth)).sort((a, b) => b.date.localeCompare(a.date));
+  const driverCashFor = (day: string) => records.reduce((sum, record) => {
+    const s = current(record);
+    return sum + (shiftRole(s) === "driver" && localInput(s.start).slice(0, 10) === day ? cashTotals(s).billTotals : 0);
+  }, 0);
+  const storeCashFor = (day: string) => storeCashEntries.reduce((sum, entry) => sum + (entry.date === day ? entry.amountCents : 0), 0);
+  const rows = monthSales.map((sale) => {
+    const expected = sale.pcSalesCents + sale.onlineOrdersCents;
+    const driverCash = driverCashFor(sale.date), storeCash = storeCashFor(sale.date);
+    const difference = expected - sale.cloverGrossCents - sale.onlineReceivableCents - driverCash - storeCash;
+    return { sale, expected, driverCash, storeCash, difference };
+  });
+  const monthlyDifference = rows.reduce((sum, row) => sum + row.difference, 0);
+  return `<section class="card"><div class="row"><div><h2>Daily sales reconciliation</h2><p class="subtle">Milano’s PC sales + online orders, minus Clover gross sales, online receivables, driver cash orders, and in-store cash.</p></div>${rows.length ? `<span class="pill">Month difference: ${money(monthlyDifference)}</span>` : ""}</div><form data-form="daily-sales"><div class="fields"><div><label for="sales-date">Date</label><input id="sales-date" name="date" type="date" value="${today()}" required></div><div><label for="pc-sales">Milano’s PC sales</label><input id="pc-sales" name="pcSales" inputmode="decimal" placeholder="0.00" required></div><div><label for="online-orders">Online orders</label><input id="online-orders" name="onlineOrders" inputmode="decimal" placeholder="0.00" required></div><div><label for="clover-gross">Clover devices gross sales</label><input id="clover-gross" name="cloverGross" inputmode="decimal" placeholder="0.00" required></div><div><label for="online-receivable">Online order receivable</label><input id="online-receivable" name="onlineReceivable" inputmode="decimal" placeholder="0.00" required></div></div><button class="primary" type="submit" style="margin-top:16px">Save daily sales</button><p class="subtle">Saving the same date updates that day. Driver cash and in-store cash are calculated automatically.</p></form></section><section class="card table-wrap"><h2>Daily sales for ${esc(expenseMonth)}</h2>${rows.length ? `<table><thead><tr><th>Date</th><th>PC + online</th><th>Clover</th><th>Online receivable</th><th>Driver cash</th><th>Store cash</th><th>Difference</th><th></th></tr></thead><tbody>${rows.map(({ sale, expected, driverCash, storeCash, difference }) => `<tr><td>${esc(sale.date)}</td><td>${money(expected)}</td><td>${money(sale.cloverGrossCents)}</td><td>${money(sale.onlineReceivableCents)}</td><td>${money(driverCash)}</td><td>${money(storeCash)}</td><td><strong class="${difference === 0 ? "balanced" : "unbalanced"}">${money(difference)}</strong></td><td><button data-action="delete-daily-sales" data-date="${esc(sale.date)}">Delete</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No daily sales entered for this month.</div>'}</section><section class="card table-wrap"><h2>In-store cash entries</h2>${monthStoreCash.length ? `<table><thead><tr><th>Date</th><th>Time</th><th>Amount</th><th></th></tr></thead><tbody>${monthStoreCash.map((entry) => `<tr><td>${esc(entry.date)}</td><td>${time(entry.createdAt)}</td><td>${money(entry.amountCents)}</td><td><button data-action="delete-store-cash" data-id="${entry.id}">Delete</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No in-store cash entries for this month.</div>'}</section>`;
 }
 
 function expensesView() {
@@ -194,6 +224,16 @@ function detailView() {
 function render() {
   const datesOpen = root.querySelector<HTMLDetailsElement>(".date-options")?.open;
   root.innerHTML = `<header><div class="brand"><span class="monogram">M</span><div><strong>milano’s</strong><small>PIZZERIA · EMPLOYEE DESK</small></div></div><nav aria-label="Main navigation"><button data-action="cashout-nav" class="${view === "cashout" || view === "device-login" ? "active" : ""}">Cash-out</button><button data-action="protected-nav" data-view="history" class="${view === "history" || view === "detail" ? "active" : ""}">History</button><button data-action="protected-nav" data-view="employees" class="${view === "employees" ? "active" : ""}">Employees</button><button data-action="protected-nav" data-view="expenses" class="${view === "expenses" ? "active" : ""}">Expenses</button></nav></header>${store.demo ? '<div class="notice">Preview mode · Records are temporary and cleared when you reload.</div>' : ""}<main>${message ? `<div role="alert" class="message ${success ? "success" : ""}">${esc(message)}</div>` : ""}${view === "cashout" ? cashout() : view === "device-login" ? deviceLoginView() : view === "login" ? loginView() : view === "history" && admin ? historyView() : view === "employees" && admin ? employeeView() : view === "expenses" && admin ? expensesView() : view === "detail" && admin ? detailView() : view === "saved" && selected ? `<div class="saved-heading"><span class="pill">${store.demo ? "Demo saved" : "Cash-out saved"}</span><h1>You’re all set.</h1><p class="subtle">The receipt below is for reference. An admin can print it from History.</p></div>${receipt(selected)}<div class="row" style="justify-content:center"><button class="primary" data-action="new">Next employee</button></div>` : ""}</main><footer>Milano’s Pizzeria · Employee cash-outs</footer>`;
+  const cashoutNav = root.querySelector<HTMLButtonElement>('button[data-action="cashout-nav"]');
+  cashoutNav?.insertAdjacentHTML("afterend", `<button data-action="store-cash-nav" class="${view === "store-cash" || (view === "device-login" && deviceTarget === "store-cash") ? "active" : ""}">Store Cash</button>`);
+  if (view === "device-login" && deviceTarget === "store-cash") cashoutNav?.classList.remove("active");
+  if (view === "store-cash") root.querySelector("main")?.insertAdjacentHTML("beforeend", storeCashView());
+  if (view === "expenses" && admin) {
+    const intro = root.querySelector("main")?.querySelector(".intro");
+    const subtitle = intro?.querySelector<HTMLElement>(".subtle");
+    if (subtitle) subtitle.textContent = "Track costs and reconcile daily sales.";
+    intro?.insertAdjacentHTML("afterend", dailySalesView());
+  }
   if (datesOpen) root.querySelector<HTMLDetailsElement>(".date-options")!.open = true;
   if (busy) root.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
 }
@@ -227,7 +267,7 @@ async function afterLogin() {
   roster = await store.roster();
   try { rates = await store.getRates(); } catch { rates = { driver: 1300, cook: 1300, cashier: 1300 }; }
   if (loginTarget === "history") [records, reviews] = await Promise.all([store.history(), store.getReviews()]);
-  if (loginTarget === "expenses") [records, companies, expenses] = await Promise.all([store.allHistory(), store.getCompanies(), store.getExpenses()]);
+  if (loginTarget === "expenses") [records, companies, expenses, storeCashEntries, dailySales] = await Promise.all([store.allHistory(), store.getCompanies(), store.getExpenses(), store.getStoreCash(), store.getDailySales()]);
   view = loginTarget;
 }
 
@@ -295,9 +335,9 @@ root.addEventListener("submit", (event) => {
         await store.login(String(data.get("pin")));
         await store.authorizeDevice();
         await store.logout();
-        [roster, rates] = await Promise.all([store.roster(), store.getRates()]);
-        view = "cashout";
-        message = "This computer is authorized. Employee cash-outs will stay unlocked here.";
+        [roster, rates, storeCashEntries] = await Promise.all([store.roster(), store.getRates(), store.getStoreCash()]);
+        view = deviceTarget;
+        message = "This computer is authorized. Employee tools will stay unlocked here.";
         success = true;
         break;
       case "employee": {
@@ -332,6 +372,20 @@ root.addEventListener("submit", (event) => {
         rates = nextRates;
         message = "Hourly rates updated. Existing shifts are unchanged."; success = true; break;
       }
+      case "store-cash": {
+        const entry: StoreCashEntry = { id: crypto.randomUUID(), date: today(), amountCents: salesCents(String(data.get("amount"))), createdAt: Date.now(), createdBy: store.uid() };
+        if (entry.amountCents <= 0) throw new Error("Enter a cash amount greater than zero.");
+        await store.saveStoreCash(entry);
+        storeCashEntries = await store.getStoreCash();
+        message = `Cash received saved: ${money(entry.amountCents)}.`; success = true; break;
+      }
+      case "daily-sales": {
+        const salesDate = String(data.get("date"));
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(salesDate)) throw new Error("Enter the sales date.");
+        await store.saveDailySales({ date: salesDate, pcSalesCents: salesCents(String(data.get("pcSales"))), onlineOrdersCents: salesCents(String(data.get("onlineOrders"))), cloverGrossCents: salesCents(String(data.get("cloverGross"))), onlineReceivableCents: salesCents(String(data.get("onlineReceivable"))), updatedAt: Date.now(), updatedBy: store.uid() });
+        dailySales = await store.getDailySales(); expenseMonth = salesDate.slice(0, 7);
+        message = "Daily sales saved."; success = true; break;
+      }
       case "company": {
         const name = String(data.get("name")).trim();
         if (!name) throw new Error("Enter a company name.");
@@ -361,9 +415,18 @@ root.addEventListener("click", (event) => {
       case "protected-nav": await openProtected(button.dataset.view as ProtectedView); break;
       case "cashout-nav":
         if (admin) await store.logout();
-        admin = false; editId = ""; selected = null; view = "cashout";
+        admin = false; deviceTarget = "cashout"; editId = ""; selected = null; view = "cashout";
         try {
           [roster, rates] = await Promise.all([store.roster(), store.getRates()]);
+        } catch {
+          view = "device-login";
+        }
+        break;
+      case "store-cash-nav":
+        if (admin) await store.logout();
+        admin = false; deviceTarget = "store-cash"; editId = ""; selected = null; view = "store-cash";
+        try {
+          storeCashEntries = await store.getStoreCash();
         } catch {
           view = "device-login";
         }
@@ -398,7 +461,7 @@ root.addEventListener("click", (event) => {
       case "print": print(); break;
       case "new": selected = null; draft = fresh(); confirmed = emptyConfirmed(); [roster, rates] = await Promise.all([store.roster(), store.getRates()]); view = "cashout"; break;
       case "demo-login": await store.login(""); await afterLogin(); break;
-      case "demo-device-login": view = "cashout"; message = "Demo computer authorized."; success = true; break;
+      case "demo-device-login": view = deviceTarget; message = "Demo computer authorized."; success = true; break;
       case "edit-employee": editingEmployeeId = button.dataset.id!; break;
       case "cancel-employee-edit": editingEmployeeId = ""; break;
       case "delete-employee": {
@@ -420,6 +483,12 @@ root.addEventListener("click", (event) => {
       case "delete-expense":
         if (!window.confirm("Delete this order expense?")) return;
         await store.deleteExpense(button.dataset.id!); expenses = await store.getExpenses(); message = "Expense deleted."; success = true; break;
+      case "delete-daily-sales":
+        if (!window.confirm(`Delete daily sales for ${button.dataset.date}?`)) return;
+        await store.deleteDailySales(button.dataset.date!); dailySales = await store.getDailySales(); message = "Daily sales deleted."; success = true; break;
+      case "delete-store-cash":
+        if (!window.confirm("Delete this in-store cash entry?")) return;
+        await store.deleteStoreCash(button.dataset.id!); storeCashEntries = await store.getStoreCash(); message = "In-store cash entry deleted."; success = true; break;
       case "edit": {
         if (!selected) return;
         const s = current(selected); editId = selected.id;

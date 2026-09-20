@@ -39,6 +39,22 @@ export type Expense = {
   createdAt: number;
   createdBy: string;
 };
+export type StoreCashEntry = {
+  id: string;
+  date: string;
+  amountCents: number;
+  createdAt: number;
+  createdBy: string;
+};
+export type DailySales = {
+  date: string;
+  pcSalesCents: number;
+  onlineOrdersCents: number;
+  cloverGrossCents: number;
+  onlineReceivableCents: number;
+  updatedAt: number;
+  updatedBy: string;
+};
 export type ReviewStatus = "under_review" | "reviewed";
 export type CashoutReview = {
   status: ReviewStatus;
@@ -84,6 +100,14 @@ export function billNumber(value: string) {
 }
 export const cashCents = (value: string) =>
   /^0(?:\.0{1,2})?$/.test(value.trim()) ? 0 : cents(value);
+export function salesCents(value: string): number {
+  if (!/^\d+(\.\d{1,2})?$/.test(value.trim()))
+    throw new Error("Enter a dollar amount with up to two decimal places.");
+  const n = Math.round(Number(value) * 100);
+  if (!Number.isSafeInteger(n) || n < 0 || n > 10000000)
+    throw new Error("Enter an amount between $0.00 and $100,000.00.");
+  return n;
+}
 export function cashTotals(s: Shift) {
   const entries = Object.values(s.cashDeliveries || {});
   const startingCash = s.startingCashCents || 0;

@@ -41,10 +41,17 @@ export type Expense = {
 };
 export type StoreCashEntry = {
   id: string;
+  billNumber: string;
   date: string;
   amountCents: number;
   createdAt: number;
   createdBy: string;
+  corrections?: Record<string, StoreCashCorrection>;
+};
+export type StoreCashCorrection = {
+  amountCents: number;
+  editedAt: number;
+  editedBy: string;
 };
 export type DailySales = {
   date: string;
@@ -107,6 +114,12 @@ export function salesCents(value: string): number {
   if (!Number.isSafeInteger(n) || n < 0 || n > 10000000)
     throw new Error("Enter an amount between $0.00 and $100,000.00.");
   return n;
+}
+export function storeCashAmount(entry: StoreCashEntry): number {
+  const correction = Object.values(entry.corrections || {}).sort(
+    (a, b) => b.editedAt - a.editedAt,
+  )[0];
+  return correction?.amountCents ?? entry.amountCents;
 }
 export function cashTotals(s: Shift) {
   const entries = Object.values(s.cashDeliveries || {});

@@ -2,7 +2,7 @@ import "./style.css";
 import * as store from "./store";
 import {
   amountOf, billNumber, billOf, cashTotals, cents, current, hours,
-  localInput, money, salesCents, total, totals, validateShift,
+  localInput, money, salesCents, storeCashAmount, total, totals, validateShift,
   type CashDelivery, type Cashout, type CashoutReview, type Company, type Employee,
   type DailySales, type EmployeeRole, type EntryList, type Expense, type ReviewStatus,
   type Shift, type StoreCashEntry,
@@ -42,6 +42,7 @@ let selected: Cashout | null = null;
 let companies: Record<string, Company> = {};
 let expenses: Expense[] = [];
 let storeCashEntries: StoreCashEntry[] = [];
+let editingStoreCashId = "";
 let dailySales: Record<string, DailySales> = {};
 let expenseMonth = today().slice(0, 7);
 let customDates = false;
@@ -140,8 +141,12 @@ function deviceLoginView() {
 function storeCashView() {
   const day = today();
   const entries = storeCashEntries.filter((entry) => entry.date === day);
-  const totalReceived = entries.reduce((sum, entry) => sum + entry.amountCents, 0);
-  return `<div class="intro"><div><div class="eyebrow">Cashier desk</div><h1>Cash received in store</h1><span class="subtle">Record each cash order when payment is received. No cashier name is required.</span></div><span class="pill">${esc(day)}</span></div><div class="split"><section class="card"><h2>Add cash order</h2><p class="subtle">Today’s date is added automatically.</p><form data-form="store-cash"><label for="store-cash-amount">Amount received</label><input id="store-cash-amount" name="amount" inputmode="decimal" placeholder="0.00" autocomplete="off" required autofocus><button class="primary wide" type="submit" style="margin-top:16px">Save cash received</button></form></section><section class="card"><h2>Today’s total</h2><div class="grand"><span>Cash received</span><strong>${money(totalReceived)}</strong></div><p class="subtle">${entries.length} ${entries.length === 1 ? "entry" : "entries"} today</p></section></div><section class="card table-wrap"><h2>Today’s entries</h2>${entries.length ? `<table><thead><tr><th>Time</th><th>Amount</th></tr></thead><tbody>${entries.map((entry) => `<tr><td>${time(entry.createdAt)}</td><td><strong>${money(entry.amountCents)}</strong></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No in-store cash has been entered today.</div>'}</section>`;
+  const totalReceived = entries.reduce((sum, entry) => sum + storeCashAmount(entry), 0);
+  const editing = entries.find((entry) => entry.id === editingStoreCashId);
+  const form = editing
+    ? `<h2>Correct cash amount</h2><p class="subtle">Bill ${esc(editing.billNumber || "Not recorded")} · The original amount remains in the audit history.</p><form data-form="store-cash-edit" data-id="${editing.id}"><label for="store-cash-edit-amount">Corrected amount received</label><input id="store-cash-edit-amount" name="amount" inputmode="decimal" value="${(storeCashAmount(editing) / 100).toFixed(2)}" autocomplete="off" required autofocus><div class="row" style="margin-top:16px"><button class="primary" type="submit">Save correction</button><button type="button" data-action="cancel-store-cash-edit">Cancel</button></div></form>`
+    : `<h2>Add cash order</h2><p class="subtle">Today’s date is added automatically. Saved payments cannot be deleted.</p><form data-form="store-cash"><label for="store-cash-bill">Bill number</label><input id="store-cash-bill" name="billNumber" inputmode="numeric" maxlength="40" placeholder="e.g. 1042" autocomplete="off" required autofocus><label for="store-cash-amount">Amount received</label><input id="store-cash-amount" name="amount" inputmode="decimal" placeholder="0.00" autocomplete="off" required><button class="primary wide" type="submit" style="margin-top:16px">Save cash received</button></form>`;
+  return `<div class="intro"><div><div class="eyebrow">Cashier desk</div><h1>Cash received in store</h1><span class="subtle">Enter the bill number and cash received. No cashier name is required.</span></div><span class="pill">${esc(day)}</span></div><div class="split"><section class="card">${form}</section><section class="card"><h2>Today’s total</h2><div class="grand"><span>Cash received</span><strong>${money(totalReceived)}</strong></div><p class="subtle">${entries.length} ${entries.length === 1 ? "entry" : "entries"} today</p></section></div><section class="card table-wrap"><h2>Today’s entries</h2>${entries.length ? `<table><thead><tr><th>Time</th><th>Bill number</th><th>Amount</th><th></th></tr></thead><tbody>${entries.map((entry) => `<tr><td>${time(entry.createdAt)}</td><td><strong>${esc(entry.billNumber || "Not recorded")}</strong></td><td>${money(storeCashAmount(entry))}${entry.corrections ? ' <span class="subtle">Corrected</span>' : ""}</td><td><button data-action="edit-store-cash" data-id="${entry.id}">Edit amount</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No in-store cash has been entered today.</div>'}</section>`;
 }
 
 function reviewState(id: string): "not_reviewed" | ReviewStatus {
@@ -175,7 +180,7 @@ function dailySalesView() {
     const s = current(record);
     return sum + (shiftRole(s) === "driver" && localInput(s.start).slice(0, 10) === day ? cashTotals(s).billTotals : 0);
   }, 0);
-  const storeCashFor = (day: string) => storeCashEntries.reduce((sum, entry) => sum + (entry.date === day ? entry.amountCents : 0), 0);
+  const storeCashFor = (day: string) => storeCashEntries.reduce((sum, entry) => sum + (entry.date === day ? storeCashAmount(entry) : 0), 0);
   const rows = monthSales.map((sale) => {
     const expected = sale.pcSalesCents + sale.onlineOrdersCents;
     const driverCash = driverCashFor(sale.date), storeCash = storeCashFor(sale.date);
@@ -183,7 +188,7 @@ function dailySalesView() {
     return { sale, expected, driverCash, storeCash, difference };
   });
   const monthlyDifference = rows.reduce((sum, row) => sum + row.difference, 0);
-  return `<section class="card"><div class="row"><div><h2>Daily sales reconciliation</h2><p class="subtle">Milano’s PC sales + online orders, minus Clover gross sales, online receivables, driver cash orders, and in-store cash.</p></div>${rows.length ? `<span class="pill">Month difference: ${money(monthlyDifference)}</span>` : ""}</div><form data-form="daily-sales"><div class="fields"><div><label for="sales-date">Date</label><input id="sales-date" name="date" type="date" value="${today()}" required></div><div><label for="pc-sales">Milano’s PC sales</label><input id="pc-sales" name="pcSales" inputmode="decimal" placeholder="0.00" required></div><div><label for="online-orders">Online orders</label><input id="online-orders" name="onlineOrders" inputmode="decimal" placeholder="0.00" required></div><div><label for="clover-gross">Clover devices gross sales</label><input id="clover-gross" name="cloverGross" inputmode="decimal" placeholder="0.00" required></div><div><label for="online-receivable">Online order receivable</label><input id="online-receivable" name="onlineReceivable" inputmode="decimal" placeholder="0.00" required></div></div><button class="primary" type="submit" style="margin-top:16px">Save daily sales</button><p class="subtle">Saving the same date updates that day. Driver cash and in-store cash are calculated automatically.</p></form></section><section class="card table-wrap"><h2>Daily sales for ${esc(expenseMonth)}</h2>${rows.length ? `<table><thead><tr><th>Date</th><th>PC + online</th><th>Clover</th><th>Online receivable</th><th>Driver cash</th><th>Store cash</th><th>Difference</th><th></th></tr></thead><tbody>${rows.map(({ sale, expected, driverCash, storeCash, difference }) => `<tr><td>${esc(sale.date)}</td><td>${money(expected)}</td><td>${money(sale.cloverGrossCents)}</td><td>${money(sale.onlineReceivableCents)}</td><td>${money(driverCash)}</td><td>${money(storeCash)}</td><td><strong class="${difference === 0 ? "balanced" : "unbalanced"}">${money(difference)}</strong></td><td><button data-action="delete-daily-sales" data-date="${esc(sale.date)}">Delete</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No daily sales entered for this month.</div>'}</section><section class="card table-wrap"><h2>In-store cash entries</h2>${monthStoreCash.length ? `<table><thead><tr><th>Date</th><th>Time</th><th>Amount</th><th></th></tr></thead><tbody>${monthStoreCash.map((entry) => `<tr><td>${esc(entry.date)}</td><td>${time(entry.createdAt)}</td><td>${money(entry.amountCents)}</td><td><button data-action="delete-store-cash" data-id="${entry.id}">Delete</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No in-store cash entries for this month.</div>'}</section>`;
+  return `<section class="card"><div class="row"><div><h2>Daily sales reconciliation</h2><p class="subtle">Milano’s PC sales + online orders, minus Clover gross sales, online receivables, driver cash orders, and in-store cash.</p></div>${rows.length ? `<span class="pill">Month difference: ${money(monthlyDifference)}</span>` : ""}</div><form data-form="daily-sales"><div class="fields"><div><label for="sales-date">Date</label><input id="sales-date" name="date" type="date" value="${today()}" required></div><div><label for="pc-sales">Milano’s PC sales</label><input id="pc-sales" name="pcSales" inputmode="decimal" placeholder="0.00" required></div><div><label for="online-orders">Online orders</label><input id="online-orders" name="onlineOrders" inputmode="decimal" placeholder="0.00" required></div><div><label for="clover-gross">Clover devices gross sales</label><input id="clover-gross" name="cloverGross" inputmode="decimal" placeholder="0.00" required></div><div><label for="online-receivable">Online order receivable</label><input id="online-receivable" name="onlineReceivable" inputmode="decimal" placeholder="0.00" required></div></div><button class="primary" type="submit" style="margin-top:16px">Save daily sales</button><p class="subtle">Saving the same date updates that day. Driver cash and in-store cash are calculated automatically.</p></form></section><section class="card table-wrap"><h2>Daily sales for ${esc(expenseMonth)}</h2>${rows.length ? `<table><thead><tr><th>Date</th><th>PC + online</th><th>Clover</th><th>Online receivable</th><th>Driver cash</th><th>Store cash</th><th>Difference</th><th></th></tr></thead><tbody>${rows.map(({ sale, expected, driverCash, storeCash, difference }) => `<tr><td>${esc(sale.date)}</td><td>${money(expected)}</td><td>${money(sale.cloverGrossCents)}</td><td>${money(sale.onlineReceivableCents)}</td><td>${money(driverCash)}</td><td>${money(storeCash)}</td><td><strong class="${difference === 0 ? "balanced" : "unbalanced"}">${money(difference)}</strong></td><td><button data-action="delete-daily-sales" data-date="${esc(sale.date)}">Delete</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No daily sales entered for this month.</div>'}</section><section class="card table-wrap"><h2>In-store cash entries</h2>${monthStoreCash.length ? `<table><thead><tr><th>Date</th><th>Time</th><th>Bill number</th><th>Amount</th></tr></thead><tbody>${monthStoreCash.map((entry) => `<tr><td>${esc(entry.date)}</td><td>${time(entry.createdAt)}</td><td>${esc(entry.billNumber || "Not recorded")}</td><td>${money(storeCashAmount(entry))}${entry.corrections ? ' <span class="subtle">Corrected</span>' : ""}</td></tr>`).join("")}</tbody></table>` : '<div class="empty">No in-store cash entries for this month.</div>'}</section>`;
 }
 
 function expensesView() {
@@ -373,11 +378,22 @@ root.addEventListener("submit", (event) => {
         message = "Hourly rates updated. Existing shifts are unchanged."; success = true; break;
       }
       case "store-cash": {
-        const entry: StoreCashEntry = { id: crypto.randomUUID(), date: today(), amountCents: salesCents(String(data.get("amount"))), createdAt: Date.now(), createdBy: store.uid() };
+        const bill = billNumber(String(data.get("billNumber")));
+        if (storeCashEntries.some((entry) => entry.date === today() && entry.billNumber?.toLowerCase() === bill.toLowerCase())) throw new Error("That bill number is already entered today.");
+        const entry: StoreCashEntry = { id: crypto.randomUUID(), billNumber: bill, date: today(), amountCents: salesCents(String(data.get("amount"))), createdAt: Date.now(), createdBy: store.uid() };
         if (entry.amountCents <= 0) throw new Error("Enter a cash amount greater than zero.");
         await store.saveStoreCash(entry);
         storeCashEntries = await store.getStoreCash();
         message = `Cash received saved: ${money(entry.amountCents)}.`; success = true; break;
+      }
+      case "store-cash-edit": {
+        const id = form.dataset.id!, entry = storeCashEntries.find((item) => item.id === id);
+        if (!entry) throw new Error("That cash entry could not be found.");
+        const amountCents = salesCents(String(data.get("amount")));
+        if (amountCents <= 0) throw new Error("Enter a cash amount greater than zero.");
+        await store.correctStoreCash(id, { amountCents, editedAt: Date.now(), editedBy: store.uid() });
+        storeCashEntries = await store.getStoreCash(); editingStoreCashId = "";
+        message = `Bill ${entry.billNumber || "Not recorded"} corrected to ${money(amountCents)}.`; success = true; break;
       }
       case "daily-sales": {
         const salesDate = String(data.get("date"));
@@ -415,7 +431,7 @@ root.addEventListener("click", (event) => {
       case "protected-nav": await openProtected(button.dataset.view as ProtectedView); break;
       case "cashout-nav":
         if (admin) await store.logout();
-        admin = false; deviceTarget = "cashout"; editId = ""; selected = null; view = "cashout";
+        admin = false; deviceTarget = "cashout"; editingStoreCashId = ""; editId = ""; selected = null; view = "cashout";
         try {
           [roster, rates] = await Promise.all([store.roster(), store.getRates()]);
         } catch {
@@ -424,7 +440,7 @@ root.addEventListener("click", (event) => {
         break;
       case "store-cash-nav":
         if (admin) await store.logout();
-        admin = false; deviceTarget = "store-cash"; editId = ""; selected = null; view = "store-cash";
+        admin = false; deviceTarget = "store-cash"; editingStoreCashId = ""; editId = ""; selected = null; view = "store-cash";
         try {
           storeCashEntries = await store.getStoreCash();
         } catch {
@@ -486,9 +502,8 @@ root.addEventListener("click", (event) => {
       case "delete-daily-sales":
         if (!window.confirm(`Delete daily sales for ${button.dataset.date}?`)) return;
         await store.deleteDailySales(button.dataset.date!); dailySales = await store.getDailySales(); message = "Daily sales deleted."; success = true; break;
-      case "delete-store-cash":
-        if (!window.confirm("Delete this in-store cash entry?")) return;
-        await store.deleteStoreCash(button.dataset.id!); storeCashEntries = await store.getStoreCash(); message = "In-store cash entry deleted."; success = true; break;
+      case "edit-store-cash": editingStoreCashId = button.dataset.id!; break;
+      case "cancel-store-cash-edit": editingStoreCashId = ""; break;
       case "edit": {
         if (!selected) return;
         const s = current(selected); editId = selected.id;

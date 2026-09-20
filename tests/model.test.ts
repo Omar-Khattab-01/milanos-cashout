@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   cents,
   salesCents,
+  storeCashAmount,
   cashTotals,
   billNumber,
   totals,
@@ -30,6 +31,22 @@ describe("cash-out accounting", () => {
     expect(salesCents("12345.67")).toBe(1234567);
     for (const n of ["-1", "1.005", "100000.01"])
       expect(() => salesCents(n)).toThrow();
+  });
+  it("uses the latest store-cash correction while retaining the original", () => {
+    const entry = {
+      id: "cash",
+      billNumber: "1042",
+      date: "2026-09-20",
+      amountCents: 3000,
+      createdAt: 1,
+      createdBy: "kiosk",
+      corrections: {
+        first: { amountCents: 3200, editedAt: 2, editedBy: "kiosk" },
+        latest: { amountCents: 3500, editedAt: 3, editedBy: "kiosk" },
+      },
+    };
+    expect(storeCashAmount(entry)).toBe(3500);
+    expect(entry.amountCents).toBe(3000);
   });
   it("calculates overnight hours, wages, and every entry", () => {
     validateShift(shift);

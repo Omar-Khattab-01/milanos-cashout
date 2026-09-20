@@ -68,13 +68,24 @@
       ".read": "auth != null && (root.child('devices').child(auth.uid).val() === true || root.child('admins').child(auth.uid).val() === true)",
       ".indexOn": ["date"],
       "$id": {
-        ".write": "(data.exists() && !newData.exists() && auth != null && root.child('admins').child(auth.uid).val() === true) || (!data.exists() && newData.exists() && auth != null && (root.child('devices').child(auth.uid).val() === true || root.child('admins').child(auth.uid).val() === true) && newData.child('createdBy').val() === auth.uid)",
-        ".validate": "newData.hasChildren(['id','date','amountCents','createdAt','createdBy'])",
+        ".write": "!data.exists() && newData.exists() && auth != null && (root.child('devices').child(auth.uid).val() === true || root.child('admins').child(auth.uid).val() === true) && newData.child('createdBy').val() === auth.uid && !newData.child('corrections').exists()",
+        ".validate": "newData.hasChildren(['id','billNumber','date','amountCents','createdAt','createdBy'])",
         "id": { ".validate": "newData.val() === $id" },
+        "billNumber": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z0-9-]{1,40}$/)" },
         "date": { ".validate": "newData.isString() && newData.val().matches(/^\\d{4}-\\d{2}-\\d{2}$/)" },
         "amountCents": { ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 1 && newData.val() <= 10000000" },
         "createdAt": { ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= now - 300000 && newData.val() <= now + 60000" },
         "createdBy": { ".validate": "newData.val() === auth.uid" },
+        "corrections": {
+          "$correction": {
+            ".write": "!data.exists() && newData.exists() && auth != null && (root.child('devices').child(auth.uid).val() === true || root.child('admins').child(auth.uid).val() === true)",
+            ".validate": "newData.hasChildren(['amountCents','editedAt','editedBy'])",
+            "amountCents": { ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 1 && newData.val() <= 10000000" },
+            "editedAt": { ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= now - 300000 && newData.val() <= now + 60000" },
+            "editedBy": { ".validate": "newData.val() === auth.uid" },
+            "$other": { ".validate": false }
+          }
+        },
         "$other": { ".validate": false }
       }
     },

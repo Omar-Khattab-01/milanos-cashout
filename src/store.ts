@@ -29,6 +29,7 @@ import type {
   EmployeeRole,
   Expense,
   ReviewStatus,
+  StoreCashCorrection,
   StoreCashEntry,
 } from "./model";
 const env = import.meta.env;
@@ -286,9 +287,17 @@ export async function saveStoreCash(entry: StoreCashEntry) {
   if (db) await set(ref(db, `storeCash/${entry.id}`), entry);
   else storeCashRecords[entry.id] = structuredClone(entry);
 }
-export async function deleteStoreCash(id: string) {
-  if (db) await remove(ref(db, `storeCash/${id}`));
-  else delete storeCashRecords[id];
+export async function correctStoreCash(
+  id: string,
+  correction: StoreCashCorrection,
+) {
+  const key = crypto.randomUUID();
+  if (db)
+    await set(ref(db, `storeCash/${id}/corrections/${key}`), correction);
+  else {
+    storeCashRecords[id].corrections ||= {};
+    storeCashRecords[id].corrections![key] = structuredClone(correction);
+  }
 }
 export async function getDailySales(): Promise<Record<string, DailySales>> {
   return db

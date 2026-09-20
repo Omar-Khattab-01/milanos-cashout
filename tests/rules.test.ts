@@ -332,6 +332,7 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
     it("lets paired store computers add cash and keeps daily sales admin-only", async () => {
       const cash = {
         id: "cash-1",
+        billNumber: "1042",
         date: "2026-09-20",
         amountCents: 3299,
         createdAt: Date.now(),
@@ -342,7 +343,13 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertFails(update(ref(db("kiosk"), "storeCash/cash-1"), { amountCents: 1 }));
       await assertFails(remove(ref(db("kiosk"), "storeCash/cash-1")));
       await assertFails(set(ref(db("stranger"), "storeCash/cash-2"), { ...cash, id: "cash-2", createdBy: "stranger" }));
-      await assertSucceeds(remove(ref(db("admin"), "storeCash/cash-1")));
+      await assertSucceeds(set(ref(db("kiosk"), "storeCash/cash-1/corrections/edit-1"), {
+        amountCents: 3500,
+        editedAt: Date.now(),
+        editedBy: "kiosk",
+      }));
+      await assertFails(update(ref(db("kiosk"), "storeCash/cash-1/corrections/edit-1"), { amountCents: 1 }));
+      await assertFails(remove(ref(db("admin"), "storeCash/cash-1")));
 
       const sales = {
         date: "2026-09-20",

@@ -556,3 +556,26 @@ a {
 .entry-list li > span:first-child {
   overflow-wrap: anywhere;
 }
+.review-status {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  background: #f0f1ef;
+  color: #59635c;
+}
+.review-status.under_review {
+  background: #fff1d6;
+  color: #8a5700;
+}
+.review-status.reviewed {
+  background: #e1f4e8;
+  color: #176b38;
+}
+.review-check {
+  color: #198447;
+  font-size: 22px;
+  font-weight: 800;
+}

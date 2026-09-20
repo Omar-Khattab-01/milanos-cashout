@@ -32,6 +32,12 @@ export type Expense = {
   createdAt: number;
   createdBy: string;
 };
+export type ReviewStatus = "under_review" | "reviewed";
+export type CashoutReview = {
+  status: ReviewStatus;
+  updatedAt: number;
+  updatedBy: string;
+};
 export type Correction = Shift & {
   reason: string;
   editedBy: string;

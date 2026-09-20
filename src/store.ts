@@ -21,10 +21,12 @@ import {
 } from "firebase/database";
 import type {
   Cashout,
+  CashoutReview,
   Company,
   Correction,
   Employee,
   Expense,
+  ReviewStatus,
 } from "./model";
 const env = import.meta.env;
 export const demo = !env.VITE_FIREBASE_API_KEY;
@@ -54,6 +56,7 @@ let companies: Record<string, Company> = {
   supplier: { name: "Sample Food Supplier" },
 };
 const expenseRecords: Record<string, Expense> = {};
+const reviewRecords: Record<string, CashoutReview> = {};
 export const uid = () =>
   auth?.currentUser?.uid || kioskAuth?.currentUser?.uid || "demo-driver";
 export async function init() {
@@ -207,8 +210,29 @@ export async function correct(id: string, correction: Correction) {
   }
 }
 export async function deleteShift(id: string) {
-  if (db) await remove(ref(db, `cashouts/${id}`));
-  else delete records[id];
+  if (db)
+    await update(ref(db), {
+      [`cashouts/${id}`]: null,
+      [`cashoutReviews/${id}`]: null,
+    });
+  else {
+    delete records[id];
+    delete reviewRecords[id];
+  }
+}
+export async function getReviews(): Promise<Record<string, CashoutReview>> {
+  return db
+    ? (await get(ref(db, "cashoutReviews"))).val() || {}
+    : structuredClone(reviewRecords);
+}
+export async function setReview(id: string, status: ReviewStatus) {
+  const review: CashoutReview = {
+    status,
+    updatedAt: Date.now(),
+    updatedBy: uid(),
+  };
+  if (db) await set(ref(db, `cashoutReviews/${id}`), review);
+  else reviewRecords[id] = review;
 }
 export async function getCompanies(): Promise<Record<string, Company>> {
   return db

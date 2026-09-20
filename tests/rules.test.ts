@@ -91,6 +91,36 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertFails(set(ref(db("kiosk"), "admins/kiosk"), true));
       await assertSucceeds(get(ref(db("admin"), "cashouts")));
     });
+    it("allows only admins to update valid cash-out review states", async () => {
+      await set(ref(db("kiosk"), "cashouts/shift"), record);
+      const reviewed = {
+        status: "reviewed",
+        updatedAt: Date.now(),
+        updatedBy: "admin",
+      };
+      await assertFails(
+        set(ref(db("kiosk"), "cashoutReviews/shift"), {
+          ...reviewed,
+          updatedBy: "kiosk",
+        }),
+      );
+      await assertSucceeds(
+        set(ref(db("admin"), "cashoutReviews/shift"), reviewed),
+      );
+      await assertSucceeds(
+        set(ref(db("admin"), "cashoutReviews/shift"), {
+          ...reviewed,
+          status: "under_review",
+        }),
+      );
+      await assertFails(
+        set(ref(db("admin"), "cashoutReviews/shift"), {
+          ...reviewed,
+          status: "unpaid",
+        }),
+      );
+      await assertFails(get(ref(db("kiosk"), "cashoutReviews")));
+    });
     it("rejects altered rates and every malformed money entry", async () => {
       await assertFails(
         set(ref(db("kiosk"), "cashouts/shift"), { ...record, rateCents: 2000 }),
@@ -144,7 +174,17 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
           await get(ref(db("admin"), "cashouts/shift/tips/e000/amountCents"))
         ).val(),
       ).toBe(250);
-      await assertSucceeds(remove(ref(db("admin"), "cashouts/shift")));
+      await set(ref(db("admin"), "cashoutReviews/shift"), {
+        status: "reviewed",
+        updatedAt: Date.now(),
+        updatedBy: "admin",
+      });
+      await assertSucceeds(
+        update(ref(db("admin")), {
+          "cashouts/shift": null,
+          "cashoutReviews/shift": null,
+        }),
+      );
     });
     it("validates online tips and cash-delivery fields server-side", async () => {
       const cash = {

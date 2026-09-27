@@ -5,7 +5,7 @@ import {
   localInput, money, salesCents, storeCashAmount, total, totals, validateShift,
   type CashDelivery, type CashFlowEntry, type Cashout, type CashoutReview, type Company, type Employee,
   type DailySales, type EmployeeRole, type EntryList, type Expense, type InventoryItem, type InventoryTargetType, type OpeningHours, type ReviewStatus,
-  type RegisterCash, type ScheduledShift, type Shift, type StoreCashEntry,
+  type PublishedSchedule, type RegisterCash, type ScheduledShift, type Shift, type StoreCashEntry,
 } from "./model";
 
 const root = document.querySelector<HTMLDivElement>("#app")!;
@@ -67,6 +67,10 @@ const addDays = (value: string, days: number) => {
 let scheduleWeek = weekStartFor();
 let openingHours: OpeningHours = Object.fromEntries(scheduleDays.map((day) => [day, { closed: false, open: "11:00", close: "22:00" }])) as OpeningHours;
 let scheduledShifts: Record<string, ScheduledShift> = {};
+let publishedSchedule: PublishedSchedule | null = null;
+let scheduleEditor: { employeeId: string; date: string; shiftId?: string } | null = null;
+let scheduleRoleFilter: "all" | EmployeeRole = "all";
+let publicScheduleWeek = new URLSearchParams(location.search).get("schedule") || "";
 let customDates = false;
 let pending: Cashout | null = null;
 let editId = "";
@@ -373,6 +377,53 @@ function scheduleView() {
   return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Staff schedule</h1><span class="subtle">Set store hours, assign the team, then share a clear weekly schedule.</span></div><div class="schedule-actions"><button data-action="copy-schedule">Copy schedule</button><button class="primary" data-action="print-schedule">Print schedule</button></div></div><div class="schedule-week-picker"><button data-action="schedule-week" data-offset="-7" aria-label="Previous week">←</button><label for="schedule-week"><span>Week of</span><input id="schedule-week" type="date" value="${scheduleWeek}"></label><button data-action="schedule-week" data-offset="7" aria-label="Next week">→</button><span class="pill">${shortScheduleDate(scheduleWeek)}–${shortScheduleDate(weekEnd)}</span></div><div class="schedule-layout"><aside><section class="card"><h2>Add a shift</h2><p class="subtle">Choose an employee, day, and shift time.</p><form data-form="schedule-shift"><label for="schedule-employee">Employee</label><select id="schedule-employee" name="employeeId" required><option value="">Select employee</option>${employees.map(([id, employee]) => `<option value="${esc(id)}">${esc(employee.name)} · ${roleName(employeeRole(employee))}</option>`).join("")}</select><label for="schedule-date">Day</label><select id="schedule-date" name="date" required>${scheduleDays.map((_, index) => { const value = addDays(scheduleWeek, index); return `<option value="${value}">${dayNames[index]} · ${shortScheduleDate(value)}</option>`; }).join("")}</select><div class="fields"><div><label for="schedule-start">Starts</label><input id="schedule-start" name="start" type="time" required></div><div><label for="schedule-end">Ends</label><input id="schedule-end" name="end" type="time" required></div></div><button class="primary wide" type="submit">Add to schedule</button></form></section><details class="card opening-hours"><summary><strong>Weekly opening hours</strong><span class="subtle">Used on every schedule</span></summary><form data-form="opening-hours">${hoursRows}<button class="primary wide" type="submit">Save opening hours</button></form></details><section class="card"><h2>Share with employees</h2><p class="subtle">Share copies one employee’s shifts so you can paste them into a text message.</p>${staff || '<div class="empty">Add employees first.</div>'}</section></aside><div class="weekly-schedule" id="weekly-schedule"><div class="schedule-print-title"><div><div class="eyebrow">Milano’s Pizzeria</div><h2>Staff schedule</h2></div><strong>${shortScheduleDate(scheduleWeek)}–${shortScheduleDate(weekEnd)}</strong></div>${days}</div></div>`;
 }
 
+const scheduledMinutes = (item: ScheduledShift) => {
+  const value = (timeValue: string) => Number(timeValue.slice(0, 2)) * 60 + Number(timeValue.slice(3));
+  const start = value(item.start), end = value(item.end);
+  return (end <= start ? end + 1440 : end) - start;
+};
+const scheduleUrl = (week = scheduleWeek) => `${location.origin}${location.pathname}?schedule=${encodeURIComponent(week)}`;
+
+function professionalScheduleView() {
+  const allEmployees = Object.entries(roster).filter(([, employee]) => employee.active !== false).sort((a, b) => a[1].name.localeCompare(b[1].name));
+  const employees = allEmployees.filter(([, employee]) => scheduleRoleFilter === "all" || employeeRole(employee) === scheduleRoleFilter);
+  const shifts = Object.values(scheduledShifts);
+  const visibleShiftCount = shifts.filter((item) => employees.some(([id]) => id === item.employeeId)).length;
+  const publishedMatches = publishedSchedule && JSON.stringify(publishedSchedule.shifts) === JSON.stringify(scheduledShifts) && JSON.stringify(publishedSchedule.openingHours) === JSON.stringify(openingHours);
+  const editorShift = scheduleEditor?.shiftId ? scheduledShifts[scheduleEditor.shiftId] : null;
+  const editorEmployee = scheduleEditor ? roster[scheduleEditor.employeeId] : null;
+  const editor = scheduleEditor && editorEmployee ? `<section class="schedule-editor card"><div><div class="eyebrow">${editorShift ? "Edit shift" : "New shift"}</div><h2>${esc(editorEmployee.name)}</h2><p class="subtle">${new Date(`${scheduleEditor.date}T12:00:00`).toLocaleDateString("en-CA", { weekday: "long", month: "long", day: "numeric" })} · ${roleName(employeeRole(editorEmployee))}</p></div><form data-form="schedule-shift" data-shift-id="${esc(editorShift?.id || "")}"><input type="hidden" name="employeeId" value="${esc(scheduleEditor.employeeId)}"><input type="hidden" name="date" value="${esc(scheduleEditor.date)}"><div><label for="schedule-start">Starts</label><input id="schedule-start" name="start" type="time" value="${esc(editorShift?.start || "")}" required autofocus></div><div><label for="schedule-end">Ends</label><input id="schedule-end" name="end" type="time" value="${esc(editorShift?.end || "")}" required></div><button class="primary" type="submit">${editorShift ? "Save changes" : "Add shift"}</button><button type="button" data-action="cancel-schedule-editor">Cancel</button>${editorShift ? `<button type="button" class="danger-text" data-action="delete-schedule-shift" data-id="${editorShift.id}">Delete</button>` : ""}</form></section>` : "";
+  const headers = scheduleDays.map((day, index) => {
+    const dateValue = addDays(scheduleWeek, index), hoursValue = openingHours[day];
+    return `<div class="roster-day-head ${dateValue === today() ? "today" : ""}"><strong>${dayNames[index].slice(0, 3)}</strong><span>${shortScheduleDate(dateValue)}</span><small>${!hoursValue || hoursValue.closed ? "Closed" : `${clock(hoursValue.open)}–${clock(hoursValue.close)}`}</small></div>`;
+  }).join("");
+  const rows = employees.map(([id, employee]) => {
+    const employeeShifts = shifts.filter((item) => item.employeeId === id);
+    const totalMinutes = employeeShifts.reduce((sum, item) => sum + scheduledMinutes(item), 0);
+    const cells = scheduleDays.map((_, index) => {
+      const dateValue = addDays(scheduleWeek, index);
+      const cellShifts = employeeShifts.filter((item) => item.date === dateValue).sort((a, b) => a.start.localeCompare(b.start));
+      return `<div class="roster-cell ${dateValue === today() ? "today" : ""}">${cellShifts.map((item) => `<button class="roster-shift role-${item.employeeRole}" data-action="edit-schedule-shift" data-id="${item.id}"><strong>${clock(item.start)}</strong><span>to ${clock(item.end)}</span></button>`).join("")}<button class="add-shift-cell" data-action="schedule-cell" data-employee-id="${id}" data-date="${dateValue}" aria-label="Add ${esc(employee.name)} on ${dayNames[index]}">+</button></div>`;
+    }).join("");
+    return `<div class="roster-row"><div class="roster-person"><span class="avatar">${esc(employee.name[0])}</span><div><strong>${esc(employee.name)}</strong><span>${roleName(employeeRole(employee))}</span><small>${hours(totalMinutes)}</small></div></div>${cells}</div>`;
+  }).join("");
+  const filters = (["all", "driver", "cook", "cashier"] as const).map((role) => `<button data-action="schedule-filter" data-role="${role}" class="${scheduleRoleFilter === role ? "active" : ""}">${role === "all" ? "All staff" : roleName(role)}</button>`).join("");
+  const hoursRows = scheduleDays.map((day, index) => { const value = openingHours[day]; return `<div class="hours-row"><strong>${dayNames[index]}</strong><label class="closed-toggle"><input type="checkbox" name="${day}-closed" ${value?.closed ? "checked" : ""}> Closed</label><input type="time" name="${day}-open" value="${value?.open || "11:00"}" aria-label="${dayNames[index]} opening time"><span>to</span><input type="time" name="${day}-close" value="${value?.close || "22:00"}" aria-label="${dayNames[index]} closing time"></div>`; }).join("");
+  const status = publishedSchedule ? `<span class="publish-status ${publishedMatches ? "current" : "changes"}">${publishedMatches ? "Published" : "Unpublished changes"}</span>` : '<span class="publish-status changes">Not published</span>';
+  return `<div class="schedule-shell"><div class="schedule-command"><div><div class="eyebrow">Management</div><h1>Staff schedule</h1><p class="subtle">Build the week, review coverage, then publish one team link.</p></div><div class="publish-controls">${status}${publishedSchedule ? '<button data-action="copy-schedule-link">Copy team link</button>' : ""}<button class="primary" data-action="publish-schedule">${publishedSchedule ? "Publish updates" : "Publish schedule"}</button></div></div><div class="schedule-toolbar"><div class="week-controls"><button data-action="schedule-week" data-offset="-7" aria-label="Previous week">←</button><button data-action="schedule-today">Today</button><label for="schedule-week"><input id="schedule-week" type="date" value="${scheduleWeek}"><strong>${shortScheduleDate(scheduleWeek)}–${shortScheduleDate(addDays(scheduleWeek, 6))}</strong></label><button data-action="schedule-week" data-offset="7" aria-label="Next week">→</button></div><div class="schedule-filters">${filters}</div><details class="hours-settings"><summary>Opening hours</summary><form data-form="opening-hours">${hoursRows}<button class="primary wide" type="submit">Save opening hours</button></form></details><button data-action="print-schedule">Print</button></div>${editor}<div class="roster-scroll"><div class="roster-grid" id="weekly-schedule"><div class="roster-corner"><strong>Team</strong><span>${employees.length} employees · ${visibleShiftCount} shifts</span></div>${headers}${rows || '<div class="empty roster-no-staff">No employees match this filter.</div>'}</div></div><div class="schedule-legend"><span><i class="role-driver"></i>Driver</span><span><i class="role-cook"></i>Cook</span><span><i class="role-cashier"></i>Cashier</span><span class="subtle">Click any + to assign a shift.</span></div></div>`;
+}
+
+function publicScheduleView() {
+  if (!publishedSchedule) return `<div class="public-schedule"><div class="public-brand"><span class="monogram">M</span><div><strong>milano’s</strong><small>PIZZERIA · TEAM SCHEDULE</small></div></div><section class="card empty"><h1>Schedule unavailable</h1><p>This week has not been published yet. Ask your manager for the latest schedule link.</p></section></div>`;
+  const schedule = publishedSchedule, shifts = Object.values(schedule.shifts || {});
+  const days = scheduleDays.map((day, index) => {
+    const dateValue = addDays(schedule.week, index), hoursValue = schedule.openingHours[day];
+    const dayShifts = shifts.filter((item) => item.date === dateValue).sort((a, b) => a.start.localeCompare(b.start));
+    return `<section class="public-day ${dateValue === today() ? "today" : ""}"><div class="public-day-title"><div><strong>${dayNames[index]}</strong><span>${shortScheduleDate(dateValue)}</span></div><small>${!hoursValue || hoursValue.closed ? "Closed" : `${clock(hoursValue.open)}–${clock(hoursValue.close)}`}</small></div><div class="public-shifts">${dayShifts.map((item) => `<article class="public-shift role-${item.employeeRole}"><span class="avatar">${esc(item.employeeName[0])}</span><div><strong>${esc(item.employeeName)}</strong><span>${clock(item.start)}–${clock(item.end)}</span><small>${roleName(item.employeeRole)}</small></div></article>`).join("") || '<span class="schedule-empty">No one scheduled</span>'}</div></section>`;
+  }).join("");
+  return `<div class="public-schedule"><header class="public-header"><div class="public-brand"><span class="monogram">M</span><div><strong>milano’s</strong><small>PIZZERIA · TEAM SCHEDULE</small></div></div><div><span class="publish-status current">Published</span><small>Updated ${new Date(schedule.publishedAt).toLocaleString("en-CA", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</small></div></header><main><div class="public-week-title"><div><div class="eyebrow">Team schedule</div><h1>${shortScheduleDate(schedule.week)}–${shortScheduleDate(addDays(schedule.week, 6))}</h1></div><button data-action="share-public-schedule">Share link</button></div><div class="public-days">${days}</div><p class="public-note">This is the published schedule for the full Milano’s team.</p></main></div>`;
+}
+
 function detailView() {
   if (!selected) return "";
   const s = current(selected);
@@ -390,15 +441,46 @@ function detailView() {
 }
 
 function render() {
+  if (view === "public-schedule") {
+    root.innerHTML = publicScheduleView();
+    if (busy) root.querySelectorAll<HTMLButtonElement>("button").forEach((button) => (button.disabled = true));
+    return;
+  }
   const datesOpen = root.querySelector<HTMLDetailsElement>(".date-options")?.open;
-  root.innerHTML = `<header><div class="brand"><span class="monogram">M</span><div><strong>milano’s</strong><small>PIZZERIA · EMPLOYEE DESK</small></div></div><nav aria-label="Main navigation"><button data-action="cashout-nav" class="${view === "cashout" || view === "device-login" ? "active" : ""}">Cash-out</button><button data-action="protected-nav" data-view="history" class="${view === "history" || view === "detail" ? "active" : ""}">History</button><button data-action="protected-nav" data-view="employees" class="${view === "employees" ? "active" : ""}">Employees</button><button data-action="protected-nav" data-view="expenses" class="${view === "expenses" ? "active" : ""}">Expenses</button></nav></header>${store.demo ? '<div class="notice">Preview mode · Records are temporary and cleared when you reload.</div>' : ""}<main>${message ? `<div role="alert" class="message ${success ? "success" : ""}">${esc(message)}</div>` : ""}${view === "cashout" ? cashout() : view === "device-login" ? deviceLoginView() : view === "login" ? loginView() : view === "history" && admin ? historyView() : view === "employees" && admin ? employeeView() : view === "expenses" && admin ? organizedExpensesView() : view === "schedule" && admin ? scheduleView() : view === "detail" && admin ? detailView() : view === "saved" && selected ? `<div class="saved-heading"><span class="pill">${store.demo ? "Demo saved" : "Cash-out saved"}</span><h1>You’re all set.</h1><p class="subtle">The receipt below is for reference. An admin can print it from History.</p></div>${receipt(selected)}<div class="row" style="justify-content:center"><button class="primary" data-action="new">Next employee</button></div>` : ""}</main><footer>Milano’s Pizzeria · Employee cash-outs</footer>`;
+  root.innerHTML = `<header><div class="brand"><span class="monogram">M</span><div><strong>milano’s</strong><small>PIZZERIA · EMPLOYEE DESK</small></div></div><nav aria-label="Main navigation"><button data-action="cashout-nav" class="${view === "cashout" || view === "device-login" ? "active" : ""}">Cash-out</button><button data-action="protected-nav" data-view="history" class="${view === "history" || view === "detail" ? "active" : ""}">History</button><button data-action="protected-nav" data-view="employees" class="${view === "employees" ? "active" : ""}">Employees</button><button data-action="protected-nav" data-view="expenses" class="${view === "expenses" ? "active" : ""}">Expenses</button></nav></header>${store.demo ? '<div class="notice">Preview mode · Records are temporary and cleared when you reload.</div>' : ""}<main>${message ? `<div role="alert" class="message ${success ? "success" : ""}">${esc(message)}</div>` : ""}${view === "cashout" ? cashout() : view === "device-login" ? deviceLoginView() : view === "login" ? loginView() : view === "history" && admin ? historyView() : view === "employees" && admin ? employeeView() : view === "expenses" && admin ? organizedExpensesView() : view === "schedule" && admin ? professionalScheduleView() : view === "detail" && admin ? detailView() : view === "saved" && selected ? `<div class="saved-heading"><span class="pill">${store.demo ? "Demo saved" : "Cash-out saved"}</span><h1>You’re all set.</h1><p class="subtle">The receipt below is for reference. An admin can print it from History.</p></div>${receipt(selected)}<div class="row" style="justify-content:center"><button class="primary" data-action="new">Next employee</button></div>` : ""}</main><footer>Milano’s Pizzeria · Employee cash-outs</footer>`;
   const cashoutNav = root.querySelector<HTMLButtonElement>('button[data-action="cashout-nav"]');
   cashoutNav?.insertAdjacentHTML("afterend", `<button data-action="store-cash-nav" class="${view === "store-cash" || (view === "device-login" && deviceTarget === "store-cash") ? "active" : ""}">Store Cash</button>`);
   const expensesNav = root.querySelector<HTMLButtonElement>('button[data-view="expenses"]');
   expensesNav?.insertAdjacentHTML("afterend", `<button data-action="protected-nav" data-view="inventory" class="${view === "inventory" ? "active" : ""}">Inventory</button>`);
   root.querySelector<HTMLButtonElement>('button[data-view="inventory"]')?.insertAdjacentHTML("afterend", `<button data-action="protected-nav" data-view="schedule" class="${view === "schedule" ? "active" : ""}">Schedule</button>`);
   if (view === "device-login" && deviceTarget === "store-cash") cashoutNav?.classList.remove("active");
-  if (view === "store-cash") root.querySelector("main")?.insertAdjacentHTML("beforeend", storeCashView());
+  if (view === "store-cash") {
+    root.querySelector("main")?.insertAdjacentHTML("beforeend", storeCashView());
+    const overview = root.querySelector<HTMLElement>(".register-overview");
+    const totalsNode = overview?.querySelector<HTMLElement>(".register-totals");
+    const amounts = totalsNode ? Array.from(totalsNode.querySelectorAll("strong"), (item) => item.textContent || "$0.00") : [];
+    const flowSummary = root.querySelector<HTMLElement>("section.card.table-wrap p.subtle")?.textContent || "";
+    const netCash = flowSummary.split("Still with drivers ")[1] || "$0.00";
+    const flowSection = root.querySelector<HTMLElement>("section.card.table-wrap");
+    if (overview && totalsNode && amounts.length === 5) {
+      overview.querySelector("h2")!.textContent = "Today’s cash position";
+      totalsNode.classList.add("simple-cash-totals");
+      totalsNode.innerHTML = `<div><span class="subtle">Starting cash</span><strong>${amounts[0]}</strong></div><div class="expected"><span>Cash in register</span><strong>${amounts[4]}</strong></div><div><span class="subtle">Cash flow with drivers</span><strong>${netCash}</strong></div>`;
+      const explanation = overview.querySelector<HTMLParagraphElement>("p.subtle");
+      if (explanation) explanation.textContent = `Cash in register = starting cash + cash orders (${amounts[1]}) − cash flow with drivers. Cash put back is already included.`;
+    }
+    if (flowSection) {
+      flowSection.querySelector("h2")!.textContent = "Cash flow by driver";
+      const summary = flowSection.querySelector<HTMLParagraphElement>("p.subtle");
+      if (summary) summary.textContent = `Total cash flow with drivers: ${netCash}. Use Put back when cash returns to the register.`;
+    }
+    const flowHeadings = root.querySelectorAll("section.card.table-wrap table thead th");
+    if (flowHeadings.length >= 5) {
+      flowHeadings[2].textContent = "Cash flow";
+      flowHeadings[3].textContent = "Put back";
+      flowHeadings[4].textContent = "With driver";
+    }
+  }
   if (view === "inventory" && admin) root.querySelector("main")?.insertAdjacentHTML("beforeend", inventoryView());
   const startingCashInput = view === "cashout" && cashoutRole === "driver" ? root.querySelector<HTMLInputElement>('#startingCash') : null;
   if (startingCashInput) {
@@ -464,9 +546,10 @@ async function afterLogin() {
   if (loginTarget === "expenses") [records, companies, expenses, storeCashEntries, dailySales, monthlyRentCents] = await Promise.all([store.allHistory(), store.getCompanies(), store.getExpenses(), store.getStoreCash(), store.getDailySales(), store.getMonthlyRent()]);
   if (loginTarget === "inventory") inventory = await store.getInventory();
   if (loginTarget === "schedule") {
-    const [savedHours, savedSchedule] = await Promise.all([store.getOpeningHours(), store.getSchedule(scheduleWeek)]);
+    const [savedHours, savedSchedule, published] = await Promise.all([store.getOpeningHours(), store.getSchedule(scheduleWeek), store.getPublishedSchedule(scheduleWeek)]);
     openingHours = { ...openingHours, ...savedHours };
     scheduledShifts = savedSchedule;
+    publishedSchedule = published;
   }
   view = loginTarget;
 }
@@ -515,7 +598,10 @@ root.addEventListener("change", (event) => {
   if (el.id === "expense-month") expenseMonth = el.value;
   if (el.id === "schedule-week") {
     scheduleWeek = weekStartFor(el.value);
-    void run(async () => { scheduledShifts = await store.getSchedule(scheduleWeek); });
+    void run(async () => {
+      [scheduledShifts, publishedSchedule] = await Promise.all([store.getSchedule(scheduleWeek), store.getPublishedSchedule(scheduleWeek)]);
+      scheduleEditor = null;
+    });
     return;
   }
   if (["filter-employee", "filter-date", "expense-month"].includes(el.id)) render();
@@ -653,14 +739,18 @@ root.addEventListener("submit", (event) => {
         const minutes = (value: string) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
         const range = (from: string, to: string) => { const a = minutes(from), b = minutes(to); return [a, b <= a ? b + 1440 : b] as const; };
         const [nextStart, nextEnd] = range(start, end);
+        const editingId = form.dataset.shiftId || "";
         if (Object.values(scheduledShifts).some((item) => {
+          if (item.id === editingId) return false;
           if (item.employeeId !== employeeId || item.date !== shiftDate) return false;
           const [existingStart, existingEnd] = range(item.start, item.end);
           return nextStart < existingEnd && existingStart < nextEnd;
         })) throw new Error("That employee already has an overlapping shift on this day.");
-        const item: ScheduledShift = { id: crypto.randomUUID(), employeeId, employeeName: employee.name, employeeRole: employeeRole(employee), date: shiftDate, start, end, createdAt: Date.now(), createdBy: store.uid() };
+        const existing = editingId ? scheduledShifts[editingId] : null;
+        const item: ScheduledShift = { id: editingId || crypto.randomUUID(), employeeId, employeeName: employee.name, employeeRole: employeeRole(employee), date: shiftDate, start, end, createdAt: existing?.createdAt || Date.now(), createdBy: existing?.createdBy || store.uid() };
         await store.saveScheduledShift(scheduleWeek, item); scheduledShifts = await store.getSchedule(scheduleWeek);
-        message = `${employee.name} added to ${dayNames[scheduleDays.findIndex((_, index) => addDays(scheduleWeek, index) === shiftDate)]}.`; success = true; break;
+        scheduleEditor = null;
+        message = existing ? `${employee.name}’s shift updated.` : `${employee.name} added to ${dayNames[scheduleDays.findIndex((_, index) => addDays(scheduleWeek, index) === shiftDate)]}.`; success = true; break;
       }
       case "inventory-add": {
         const name = String(data.get("name")).trim(), targetType = String(data.get("targetType")) as InventoryTargetType;
@@ -729,13 +819,49 @@ root.addEventListener("click", (event) => {
       }
       case "schedule-week":
         scheduleWeek = addDays(scheduleWeek, Number(button.dataset.offset));
-        scheduledShifts = await store.getSchedule(scheduleWeek);
+        [scheduledShifts, publishedSchedule] = await Promise.all([store.getSchedule(scheduleWeek), store.getPublishedSchedule(scheduleWeek)]);
+        scheduleEditor = null;
         break;
+      case "schedule-today":
+        scheduleWeek = weekStartFor();
+        [scheduledShifts, publishedSchedule] = await Promise.all([store.getSchedule(scheduleWeek), store.getPublishedSchedule(scheduleWeek)]);
+        scheduleEditor = null;
+        break;
+      case "schedule-filter": scheduleRoleFilter = button.dataset.role as "all" | EmployeeRole; break;
+      case "schedule-cell": scheduleEditor = { employeeId: button.dataset.employeeId!, date: button.dataset.date! }; break;
+      case "edit-schedule-shift": {
+        const item = scheduledShifts[button.dataset.id!];
+        if (item) scheduleEditor = { employeeId: item.employeeId, date: item.date, shiftId: item.id };
+        break;
+      }
+      case "cancel-schedule-editor": scheduleEditor = null; break;
       case "delete-schedule-shift": {
         const item = scheduledShifts[button.dataset.id!];
         if (!item || !window.confirm(`Remove ${item.employeeName} from this shift?`)) return;
         await store.deleteScheduledShift(scheduleWeek, item.id); scheduledShifts = await store.getSchedule(scheduleWeek);
+        scheduleEditor = null;
         message = "Shift removed from the schedule."; success = true; break;
+      }
+      case "publish-schedule": {
+        if (!Object.keys(scheduledShifts).length) throw new Error("Add at least one shift before publishing this week.");
+        const snapshot: PublishedSchedule = { week: scheduleWeek, openingHours: structuredClone(openingHours), shifts: structuredClone(scheduledShifts), publishedAt: Date.now(), publishedBy: store.uid() };
+        await store.publishSchedule(snapshot); publishedSchedule = snapshot;
+        try { await navigator.clipboard.writeText(scheduleUrl()); message = "Schedule published. The team link was copied."; }
+        catch { message = "Schedule published. Use Copy team link to share it."; }
+        success = true; break;
+      }
+      case "copy-schedule-link":
+        await navigator.clipboard.writeText(scheduleUrl());
+        message = "Team schedule link copied."; success = true; break;
+      case "share-public-schedule": {
+        const url = location.href;
+        if (navigator.share) {
+          try { await navigator.share({ title: "Milano’s Pizzeria team schedule", url }); }
+          catch (error) { if ((error as { name?: string }).name !== "AbortError") throw error; }
+        } else {
+          await navigator.clipboard.writeText(url); message = "Schedule link copied."; success = true;
+        }
+        break;
       }
       case "copy-schedule": {
         const result = await shareSchedule();
@@ -869,6 +995,11 @@ root.addEventListener("click", (event) => {
 root.innerHTML = "<main><h1>Milano’s driver desk</h1><p>Loading…</p></main>";
 void run(async () => {
   await store.init(); admin = false;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(publicScheduleWeek)) {
+    publishedSchedule = await store.getPublishedSchedule(publicScheduleWeek);
+    view = "public-schedule";
+    return;
+  }
   try {
     [roster, rates, cashFlows] = await Promise.all([store.roster(), store.getRates(), store.getCashFlows()]);
   } catch {

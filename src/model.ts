@@ -92,6 +92,13 @@ export type ScheduledShift = {
   createdAt: number;
   createdBy: string;
 };
+export type PublishedSchedule = {
+  week: string;
+  openingHours: OpeningHours;
+  shifts: Record<string, ScheduledShift>;
+  publishedAt: number;
+  publishedBy: string;
+};
 export type InventoryTargetType = "quantity" | "percentage";
 export type InventoryItem = {
   id: string;

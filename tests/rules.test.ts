@@ -441,6 +441,11 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertFails(set(ref(db("kiosk"), "schedules/2026-09-28/shift-1"), { ...shift, createdBy: "kiosk" }));
       await assertSucceeds(set(ref(db("admin"), "schedules/2026-09-28/shift-1"), shift));
       await assertFails(set(ref(db("admin"), "schedules/2026-09-28/spoofed"), { ...shift, id: "spoofed", employeeName: "Other" }));
+      const published = { week: "2026-09-28", openingHours: hours, shifts: { "shift-1": shift }, publishedAt: Date.now(), publishedBy: "admin" };
+      await assertFails(set(ref(db("kiosk"), "publishedSchedules/2026-09-28"), { ...published, publishedBy: "kiosk" }));
+      await assertSucceeds(set(ref(db("admin"), "publishedSchedules/2026-09-28"), published));
+      await assertSucceeds(get(ref(db("kiosk"), "publishedSchedules/2026-09-28")));
+      await assertFails(set(ref(db("admin"), "publishedSchedules/2026-10-05"), { ...published, week: "2026-10-05", shifts: { "shift-1": { ...shift, employeeName: "Other" } } }));
       await assertSucceeds(remove(ref(db("admin"), "schedules/2026-09-28/shift-1")));
     });
     it("keeps inventory PIN-protected and validates quantity and percentage targets", async () => {

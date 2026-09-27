@@ -32,6 +32,7 @@ import type {
   Expense,
   InventoryItem,
   OpeningHours,
+  PublishedSchedule,
   RegisterCash,
   ReviewStatus,
   StoreCashCorrection,
@@ -79,6 +80,7 @@ const inventoryRecords: Record<string, InventoryItem> = {};
 const dailySalesRecords: Record<string, DailySales> = {};
 let openingHoursRecord: OpeningHours = {};
 const scheduleRecords: Record<string, Record<string, ScheduledShift>> = {};
+const publishedScheduleRecords: Record<string, PublishedSchedule> = {};
 export const uid = () =>
   auth?.currentUser?.uid || kioskAuth?.currentUser?.uid || "demo-driver";
 export async function init() {
@@ -364,6 +366,13 @@ export async function saveScheduledShift(week: string, value: ScheduledShift) {
 export async function deleteScheduledShift(week: string, id: string) {
   if (db) await remove(ref(db, `schedules/${week}/${id}`));
   else delete scheduleRecords[week]?.[id];
+}
+export async function getPublishedSchedule(week: string): Promise<PublishedSchedule | null> {
+  return db ? (await get(ref(db, `publishedSchedules/${week}`))).val() || null : structuredClone(publishedScheduleRecords[week] || null);
+}
+export async function publishSchedule(value: PublishedSchedule) {
+  if (db) await set(ref(db, `publishedSchedules/${value.week}`), value);
+  else publishedScheduleRecords[value.week] = structuredClone(value);
 }
 export async function getInventory(): Promise<Record<string, InventoryItem>> {
   return db

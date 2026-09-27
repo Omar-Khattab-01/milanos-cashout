@@ -72,6 +72,25 @@ export type CashFlowEntry = {
   amountCents: number;
   createdAt: number;
   createdBy: string;
+  returns?: Record<string, CashFlowReturn>;
+};
+export type CashFlowReturn = {
+  amountCents: number;
+  returnedAt: number;
+  returnedBy: string;
+};
+export type OpeningHour = { closed: boolean; open: string; close: string };
+export type OpeningHours = Record<string, OpeningHour>;
+export type ScheduledShift = {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  employeeRole: EmployeeRole;
+  date: string;
+  start: string;
+  end: string;
+  createdAt: number;
+  createdBy: string;
 };
 export type InventoryTargetType = "quantity" | "percentage";
 export type InventoryItem = {
@@ -157,6 +176,10 @@ export function storeCashAmount(entry: StoreCashEntry): number {
   )[0];
   return correction?.amountCents ?? entry.amountCents;
 }
+export const cashFlowReturned = (entry: CashFlowEntry) =>
+  Object.values(entry.returns || {}).reduce((sum, item) => sum + item.amountCents, 0);
+export const cashFlowNet = (entry: CashFlowEntry) =>
+  Math.max(0, entry.amountCents - cashFlowReturned(entry));
 export function cashTotals(s: Shift) {
   const entries = Object.values(s.cashDeliveries || {});
   const startingCash = s.startingCashCents || 0;

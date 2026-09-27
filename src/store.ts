@@ -23,6 +23,7 @@ import type {
   Cashout,
   CashoutReview,
   CashFlowEntry,
+  CashFlowReturn,
   Company,
   Correction,
   DailySales,
@@ -30,10 +31,12 @@ import type {
   EmployeeRole,
   Expense,
   InventoryItem,
+  OpeningHours,
   RegisterCash,
   ReviewStatus,
   StoreCashCorrection,
   StoreCashEntry,
+  ScheduledShift,
 } from "./model";
 const env = import.meta.env;
 export const demo = !env.VITE_FIREBASE_API_KEY;
@@ -74,6 +77,8 @@ const registerCashRecords: Record<string, RegisterCash> = {};
 const cashFlowRecords: Record<string, CashFlowEntry> = {};
 const inventoryRecords: Record<string, InventoryItem> = {};
 const dailySalesRecords: Record<string, DailySales> = {};
+let openingHoursRecord: OpeningHours = {};
+const scheduleRecords: Record<string, Record<string, ScheduledShift>> = {};
 export const uid = () =>
   auth?.currentUser?.uid || kioskAuth?.currentUser?.uid || "demo-driver";
 export async function init() {
@@ -333,6 +338,32 @@ export async function getCashFlows(): Promise<CashFlowEntry[]> {
 export async function saveCashFlow(record: CashFlowEntry) {
   if (db) await set(ref(db, `cashFlows/${record.id}`), record);
   else cashFlowRecords[record.id] = structuredClone(record);
+}
+export async function returnCashFlow(id: string, value: CashFlowReturn) {
+  const key = crypto.randomUUID();
+  if (db) await set(ref(db, `cashFlows/${id}/returns/${key}`), value);
+  else {
+    cashFlowRecords[id].returns ||= {};
+    cashFlowRecords[id].returns![key] = structuredClone(value);
+  }
+}
+export async function getOpeningHours(): Promise<OpeningHours> {
+  return db ? (await get(ref(db, "openingHours"))).val() || {} : structuredClone(openingHoursRecord);
+}
+export async function saveOpeningHours(value: OpeningHours) {
+  if (db) await set(ref(db, "openingHours"), value);
+  else openingHoursRecord = structuredClone(value);
+}
+export async function getSchedule(week: string): Promise<Record<string, ScheduledShift>> {
+  return db ? (await get(ref(db, `schedules/${week}`))).val() || {} : structuredClone(scheduleRecords[week] || {});
+}
+export async function saveScheduledShift(week: string, value: ScheduledShift) {
+  if (db) await set(ref(db, `schedules/${week}/${value.id}`), value);
+  else (scheduleRecords[week] ||= {})[value.id] = structuredClone(value);
+}
+export async function deleteScheduledShift(week: string, id: string) {
+  if (db) await remove(ref(db, `schedules/${week}/${id}`));
+  else delete scheduleRecords[week]?.[id];
 }
 export async function getInventory(): Promise<Record<string, InventoryItem>> {
   return db

@@ -1,11 +1,11 @@
 import "./style.css";
 import * as store from "./store";
 import {
-  amountOf, billNumber, billOf, cashCents, cashTotals, cents, current, hours,
+  amountOf, billNumber, billOf, cashCents, cashFlowNet, cashFlowReturned, cashTotals, cents, current, hours,
   localInput, money, salesCents, storeCashAmount, total, totals, validateShift,
   type CashDelivery, type CashFlowEntry, type Cashout, type CashoutReview, type Company, type Employee,
-  type DailySales, type EmployeeRole, type EntryList, type Expense, type InventoryItem, type InventoryTargetType, type ReviewStatus,
-  type RegisterCash, type Shift, type StoreCashEntry,
+  type DailySales, type EmployeeRole, type EntryList, type Expense, type InventoryItem, type InventoryTargetType, type OpeningHours, type ReviewStatus,
+  type RegisterCash, type ScheduledShift, type Shift, type StoreCashEntry,
 } from "./model";
 
 const root = document.querySelector<HTMLDivElement>("#app")!;
@@ -23,7 +23,7 @@ const time = (value: number) => new Date(value).toLocaleTimeString("en-CA", {
 
 type EntryKind = "deliveries" | "tips" | "onlineTips";
 type ListKind = EntryKind | "cashDeliveries";
-type ProtectedView = "history" | "employees" | "expenses" | "inventory";
+type ProtectedView = "history" | "employees" | "expenses" | "inventory" | "schedule";
 type DeviceView = "cashout" | "store-cash";
 type ExpenseTab = "overview" | "sales" | "suppliers" | "payroll" | "settings";
 
@@ -48,10 +48,25 @@ let cashFlows: CashFlowEntry[] = [];
 let inventory: Record<string, InventoryItem> = {};
 let editingInventoryId = "";
 let editingStoreCashId = "";
+let returningCashFlowId = "";
 let dailySales: Record<string, DailySales> = {};
 let expenseMonth = today().slice(0, 7);
 let expenseTab: ExpenseTab = "overview";
 let monthlyRentCents = 0;
+const scheduleDays = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const weekStartFor = (value = today()) => {
+  const d = new Date(`${value}T12:00:00`);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return localInput(d.getTime()).slice(0, 10);
+};
+const addDays = (value: string, days: number) => {
+  const d = new Date(`${value}T12:00:00`); d.setDate(d.getDate() + days);
+  return localInput(d.getTime()).slice(0, 10);
+};
+let scheduleWeek = weekStartFor();
+let openingHours: OpeningHours = Object.fromEntries(scheduleDays.map((day) => [day, { closed: false, open: "11:00", close: "22:00" }])) as OpeningHours;
+let scheduledShifts: Record<string, ScheduledShift> = {};
 let customDates = false;
 let pending: Cashout | null = null;
 let editId = "";
@@ -142,7 +157,7 @@ function cashout() {
 }
 
 function loginView() {
-  const names: Record<ProtectedView, string> = { history: "Cash-out history", employees: "Employees & pay", expenses: "Monthly expenses", inventory: "Inventory" };
+  const names: Record<ProtectedView, string> = { history: "Cash-out history", employees: "Employees & pay", expenses: "Monthly expenses", inventory: "Inventory", schedule: "Staff schedule" };
   return `<section class="card login"><div class="eyebrow">Protected section</div><h1>${names[loginTarget]}</h1><p class="subtle">Enter the admin PIN to open this section.</p>${store.demo ? '<p class="message">Demo admin preview.</p><button class="primary wide" data-action="demo-login">Explore this section</button>' : '<form data-form="login"><label for="pin">Admin PIN</label><input id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="off" placeholder="Enter 4-digit PIN" required autofocus><button class="primary wide" type="submit">Unlock</button></form>'}</section>`;
 }
 
@@ -155,7 +170,9 @@ function storeCashView() {
   const entries = storeCashEntries.filter((entry) => entry.date === day);
   const totalReceived = entries.reduce((sum, entry) => sum + storeCashAmount(entry), 0);
   const dayFlows = cashFlows.filter((entry) => entry.date === day);
-  const totalCashFlow = dayFlows.reduce((sum, entry) => sum + entry.amountCents, 0);
+  const totalCashFlowTaken = dayFlows.reduce((sum, entry) => sum + entry.amountCents, 0);
+  const totalCashReturned = dayFlows.reduce((sum, entry) => sum + cashFlowReturned(entry), 0);
+  const totalCashFlow = dayFlows.reduce((sum, entry) => sum + cashFlowNet(entry), 0);
   const openingCash = registerCash[day]?.openingCashCents || 0;
   const expectedCash = openingCash + totalReceived - totalCashFlow;
   const drivers = Object.entries(roster).filter(([, employee]) => employee.active !== false && employeeRole(employee) === "driver");
@@ -163,7 +180,12 @@ function storeCashView() {
   const form = editing
     ? `<h2>Correct cash amount</h2><p class="subtle">Bill ${esc(editing.billNumber || "Not recorded")} · The original amount remains in the audit history.</p><form data-form="store-cash-edit" data-id="${editing.id}"><label for="store-cash-edit-amount">Corrected amount received</label><input id="store-cash-edit-amount" name="amount" inputmode="decimal" value="${(storeCashAmount(editing) / 100).toFixed(2)}" autocomplete="off" required autofocus><div class="row" style="margin-top:16px"><button class="primary" type="submit">Save correction</button><button type="button" data-action="cancel-store-cash-edit">Cancel</button></div></form>`
     : `<h2>Add cash order</h2><p class="subtle">Today’s date is added automatically. Saved payments cannot be deleted.</p><form data-form="store-cash"><label for="store-cash-bill">Bill number</label><input id="store-cash-bill" name="billNumber" inputmode="numeric" maxlength="40" placeholder="e.g. 1042" autocomplete="off" required autofocus><label for="store-cash-amount">Amount received</label><input id="store-cash-amount" name="amount" inputmode="decimal" placeholder="0.00" autocomplete="off" required><button class="primary wide" type="submit" style="margin-top:16px">Save cash received</button></form>`;
-  return `<div class="intro"><div><div class="eyebrow">Cashier desk</div><h1>Store cash</h1><span class="subtle">Track payments received and cash given to drivers.</span></div><span class="pill">${esc(day)}</span></div><section class="card register-overview"><h2>Register cash</h2><div class="register-totals"><div><span class="subtle">Opening cash in register</span><strong>${money(openingCash)}</strong></div><div><span class="subtle">Cash received today</span><strong>${money(totalReceived)}</strong></div><div><span class="subtle">Cash flow to drivers</span><strong>− ${money(totalCashFlow)}</strong></div><div class="expected"><span>Expected cash in register</span><strong>${money(expectedCash)}</strong></div></div><p class="subtle">Expected cash = opening cash + cash received − cash given to drivers. Opening cash and driver cash flow do not count as sales.</p><details><summary>${registerCash[day] ? "Edit opening cash" : "Set opening cash"} (admin)</summary><form data-form="register-cash"><label for="register-opening-cash">Opening cash for today</label><input id="register-opening-cash" name="amount" inputmode="decimal" value="${(openingCash / 100).toFixed(2)}" autocomplete="off" required><label for="register-pin">Admin PIN</label><input id="register-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="off" placeholder="Enter 4-digit PIN" required><button class="primary wide" type="submit">Save opening cash</button></form></details></section><div class="split"><section class="card">${form}</section><section class="card"><h2>Cash flow to driver</h2><p class="subtle">Record cash taken from the register at the start of a driver’s shift.</p><form data-form="cash-flow"><label for="cash-flow-driver">Driver name</label><select id="cash-flow-driver" name="employeeId" required><option value="">Select driver</option>${drivers.map(([id, employee]) => `<option value="${esc(id)}">${esc(employee.name)}</option>`).join("")}</select><label for="cash-flow-amount">Amount taken</label><input id="cash-flow-amount" name="amount" inputmode="decimal" placeholder="0.00" autocomplete="off" required><button class="primary wide" type="submit">Save driver cash flow</button></form></section></div><div class="split"><section class="card table-wrap"><h2>Today’s cash received</h2>${entries.length ? `<table><thead><tr><th>Time</th><th>Bill number</th><th>Amount received</th><th></th></tr></thead><tbody>${entries.map((entry) => `<tr><td>${time(entry.createdAt)}</td><td><strong>${esc(entry.billNumber || "Not recorded")}</strong></td><td>${money(storeCashAmount(entry))}${entry.corrections ? ' <span class="subtle">Corrected</span>' : ""}</td><td><button data-action="edit-store-cash" data-id="${entry.id}">Edit amount</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No in-store cash has been entered today.</div>'}</section><section class="card table-wrap"><h2>Today’s driver cash flow</h2>${dayFlows.length ? `<table><thead><tr><th>Time</th><th>Driver</th><th>Amount taken</th></tr></thead><tbody>${dayFlows.map((entry) => `<tr><td>${time(entry.createdAt)}</td><td><strong>${esc(entry.employeeName)}</strong></td><td>${money(entry.amountCents)}</td></tr>`).join("")}</tbody></table>` : '<div class="empty">No cash has been given to drivers today.</div>'}</section></div>`;
+  const flowRows = dayFlows.map((entry) => {
+    const returned = cashFlowReturned(entry), remaining = cashFlowNet(entry);
+    const returnForm = returningCashFlowId === entry.id ? `<tr class="cash-return-row"><td colspan="5"><form data-form="cash-flow-return" data-id="${entry.id}" class="cash-return-form"><div><label for="cash-return-${entry.id}">Amount being put back</label><input id="cash-return-${entry.id}" name="amount" inputmode="decimal" value="${(remaining / 100).toFixed(2)}" required autofocus></div><button class="primary" type="submit">Save return</button><button type="button" data-action="cancel-cash-return">Cancel</button></form></td></tr>` : "";
+    return `<tr><td>${time(entry.createdAt)}</td><td><strong>${esc(entry.employeeName)}</strong></td><td>${money(entry.amountCents)}</td><td>${returned ? `${money(returned)}<br><span class="subtle">${Object.keys(entry.returns || {}).length} return${Object.keys(entry.returns || {}).length === 1 ? "" : "s"}</span>` : "—"}</td><td><strong>${money(remaining)}</strong>${remaining ? ` <button data-action="cash-flow-return" data-id="${entry.id}">Put back</button>` : ' <span class="review-check" aria-label="Fully returned">✓</span>'}</td></tr>${returnForm}`;
+  }).join("");
+  return `<div class="intro"><div><div class="eyebrow">Cashier desk</div><h1>Store cash</h1><span class="subtle">Track payments received and cash given to drivers.</span></div><span class="pill">${esc(day)}</span></div><section class="card register-overview"><h2>Register cash</h2><div class="register-totals"><div><span class="subtle">Opening cash in register</span><strong>${money(openingCash)}</strong></div><div><span class="subtle">Cash received today</span><strong>${money(totalReceived)}</strong></div><div><span class="subtle">Cash taken by drivers</span><strong>− ${money(totalCashFlowTaken)}</strong></div><div><span class="subtle">Cash put back</span><strong>+ ${money(totalCashReturned)}</strong></div><div class="expected"><span>Expected cash in register</span><strong>${money(expectedCash)}</strong></div></div><p class="subtle">Expected cash = opening cash + cash received − cash taken + cash put back. Every withdrawal and return stays in the history.</p><details><summary>${registerCash[day] ? "Edit opening cash" : "Set opening cash"} (admin)</summary><form data-form="register-cash"><label for="register-opening-cash">Opening cash for today</label><input id="register-opening-cash" name="amount" inputmode="decimal" value="${(openingCash / 100).toFixed(2)}" autocomplete="off" required><label for="register-pin">Admin PIN</label><input id="register-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="off" placeholder="Enter 4-digit PIN" required><button class="primary wide" type="submit">Save opening cash</button></form></details></section><div class="split"><section class="card">${form}</section><section class="card"><h2>Cash flow to driver</h2><p class="subtle">Record cash taken from the register at the start of a driver’s shift.</p><form data-form="cash-flow"><label for="cash-flow-driver">Driver name</label><select id="cash-flow-driver" name="employeeId" required><option value="">Select driver</option>${drivers.map(([id, employee]) => `<option value="${esc(id)}">${esc(employee.name)}</option>`).join("")}</select><label for="cash-flow-amount">Amount taken</label><input id="cash-flow-amount" name="amount" inputmode="decimal" placeholder="0.00" autocomplete="off" required><button class="primary wide" type="submit">Save driver cash flow</button></form></section></div><section class="card table-wrap"><h2>Today’s driver cash flow</h2><p class="subtle">Taken ${money(totalCashFlowTaken)} · Put back ${money(totalCashReturned)} · Still with drivers ${money(totalCashFlow)}</p>${dayFlows.length ? `<table><thead><tr><th>Time</th><th>Driver</th><th>Taken</th><th>Put back</th><th>Remaining</th></tr></thead><tbody>${flowRows}</tbody></table>` : '<div class="empty">No cash has been given to drivers today.</div>'}</section><section class="card table-wrap"><h2>Today’s cash received</h2>${entries.length ? `<table><thead><tr><th>Time</th><th>Bill number</th><th>Amount received</th><th></th></tr></thead><tbody>${entries.map((entry) => `<tr><td>${time(entry.createdAt)}</td><td><strong>${esc(entry.billNumber || "Not recorded")}</strong></td><td>${money(storeCashAmount(entry))}${entry.corrections ? ' <span class="subtle">Corrected</span>' : ""}</td><td><button data-action="edit-store-cash" data-id="${entry.id}">Edit amount</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No in-store cash has been entered today.</div>'}</section>`;
 }
 
 function reviewState(id: string): "not_reviewed" | ReviewStatus {
@@ -178,7 +200,9 @@ function reviewBadge(id: string) {
 
 function historyView() {
   const filtered = records.filter((r) => (!filterEmployee || current(r).employeeId === filterEmployee) && (!filterDate || localInput(current(r).start).slice(0, 10) === filterDate));
-  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Cash-out history</h1><span class="subtle">Review, correct, reprint, or delete saved shifts.</span></div><button data-action="load-all">Load all history</button></div><div class="toolbar"><select id="filter-employee"><option value="">All employees</option>${Object.entries(roster).map(([id, e]) => `<option value="${esc(id)}" ${filterEmployee === id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select><input id="filter-date" type="date" value="${filterDate}"><button data-action="clear-filters">Clear filters</button></div><section class="card table-wrap"><p class="subtle">${records.length} loaded · ${filtered.length} matching shifts.</p>${filtered.length ? `<table><thead><tr><th>Employee / date</th><th>Review status</th><th>Hours</th><th>Total pay</th><th>Cash owed</th><th></th></tr></thead><tbody>${filtered.map((r) => { const s = current(r), t = totals(s), status = reviewState(r.id); return `<tr><td><strong>${esc(s.employeeName)}</strong><br><span class="subtle">${roleName(shiftRole(s))} · ${date(s.start)}${r.corrections ? " · Corrected" : ""}</span></td><td>${reviewBadge(r.id)}</td><td>${hours(t.minutes)}</td><td><strong>${money(t.total)}</strong></td><td>${shiftRole(s) === "driver" ? money(cashTotals(s).owed) : "—"}</td><td><div class="row"><button data-action="detail" data-id="${r.id}">View</button>${status === "reviewed" ? '<span class="review-check" aria-label="Reviewed">✓</span>' : ""}</div></td></tr>`; }).join("")}</tbody></table>` : '<div class="empty">No cash-outs found.</div>'}</section>`;
+  const filteredFlows = cashFlows.filter((entry) => (!filterEmployee || entry.employeeId === filterEmployee) && (!filterDate || entry.date === filterDate));
+  const flowHistory = `<section class="card table-wrap"><h2>Driver cash-flow history</h2><p class="subtle">Every amount taken and put back remains recorded.</p>${filteredFlows.length ? `<table><thead><tr><th>Date / time</th><th>Driver</th><th>Taken</th><th>Put back</th><th>Remaining</th></tr></thead><tbody>${filteredFlows.map((entry) => `<tr><td>${esc(entry.date)}<br><span class="subtle">${time(entry.createdAt)}</span></td><td><strong>${esc(entry.employeeName)}</strong></td><td>${money(entry.amountCents)}</td><td>${cashFlowReturned(entry) ? `${money(cashFlowReturned(entry))}<br><span class="subtle">${Object.values(entry.returns || {}).map((item) => time(item.returnedAt)).join(", ")}</span>` : "—"}</td><td><strong>${money(cashFlowNet(entry))}</strong></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No driver cash-flow records match these filters.</div>'}</section>`;
+  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Cash-out history</h1><span class="subtle">Review, correct, reprint, or delete saved shifts.</span></div><button data-action="load-all">Load all history</button></div><div class="toolbar"><select id="filter-employee"><option value="">All employees</option>${Object.entries(roster).map(([id, e]) => `<option value="${esc(id)}" ${filterEmployee === id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select><input id="filter-date" type="date" value="${filterDate}"><button data-action="clear-filters">Clear filters</button></div><section class="card table-wrap"><p class="subtle">${records.length} loaded · ${filtered.length} matching shifts.</p>${filtered.length ? `<table><thead><tr><th>Employee / date</th><th>Review status</th><th>Hours</th><th>Total pay</th><th>Cash owed</th><th></th></tr></thead><tbody>${filtered.map((r) => { const s = current(r), t = totals(s), status = reviewState(r.id); return `<tr><td><strong>${esc(s.employeeName)}</strong><br><span class="subtle">${roleName(shiftRole(s))} · ${date(s.start)}${r.corrections ? " · Corrected" : ""}</span></td><td>${reviewBadge(r.id)}</td><td>${hours(t.minutes)}</td><td><strong>${money(t.total)}</strong></td><td>${shiftRole(s) === "driver" ? money(cashTotals(s).owed) : "—"}</td><td><div class="row"><button data-action="detail" data-id="${r.id}">View</button>${status === "reviewed" ? '<span class="review-check" aria-label="Reviewed">✓</span>' : ""}</div></td></tr>`; }).join("")}</tbody></table>` : '<div class="empty">No cash-outs found.</div>'}</section>${flowHistory}`;
 }
 
 function employeeView() {
@@ -316,6 +340,39 @@ function inventoryView() {
   return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Inventory</h1><span class="subtle">Keep stock levels current and see what is needed while shopping.</span></div><span class="pill">${items.filter((item) => item.currentValue < item.targetValue).length} items needed</span></div><div class="inventory-layout"><section class="card inventory-add"><h2>Add inventory item</h2><form data-form="inventory-add"><label for="inventory-name">Item name</label><input id="inventory-name" name="name" maxlength="100" placeholder="e.g. Pizza boxes" required><label for="inventory-type">Track by</label><select id="inventory-type" name="targetType" required><option value="quantity">Quantity</option><option value="percentage">Percentage</option></select><div class="fields"><div><label for="inventory-target">Target</label><input id="inventory-target" name="targetValue" inputmode="decimal" placeholder="0" required></div><div><label for="inventory-current">Current in store</label><input id="inventory-current" name="currentValue" inputmode="decimal" placeholder="0" required></div></div><button class="primary wide" type="submit">Add inventory item</button></form></section><section><div class="inventory-list">${itemCards || '<div class="card empty">No inventory items yet. Add the first item to start the shopping list.</div>'}</div></section></div>`;
 }
 
+const shortScheduleDate = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString("en-CA", { month: "short", day: "numeric" });
+const clock = (value: string) => new Date(`2000-01-01T${value}`).toLocaleTimeString("en-CA", { hour: "numeric", minute: "2-digit" });
+function scheduleText(employeeId = "") {
+  const title = `Milano’s Pizzeria schedule · ${shortScheduleDate(scheduleWeek)}–${shortScheduleDate(addDays(scheduleWeek, 6))}`;
+  const lines = scheduleDays.flatMap((day, index) => {
+    const dateValue = addDays(scheduleWeek, index);
+    const items = Object.values(scheduledShifts).filter((item) => item.date === dateValue && (!employeeId || item.employeeId === employeeId)).sort((a, b) => a.start.localeCompare(b.start));
+    if (!items.length) return [];
+    return [`\n${dayNames[index]}, ${shortScheduleDate(dateValue)}`, ...items.map((item) => `${clock(item.start)}–${clock(item.end)} · ${item.employeeName} (${roleName(item.employeeRole)})`)];
+  });
+  return [title, ...lines].join("\n");
+}
+
+function scheduleView() {
+  const weekEnd = addDays(scheduleWeek, 6);
+  const employees = Object.entries(roster).filter(([, employee]) => employee.active !== false).sort((a, b) => a[1].name.localeCompare(b[1].name));
+  const hoursRows = scheduleDays.map((day, index) => {
+    const value = openingHours[day] || { closed: false, open: "11:00", close: "22:00" };
+    return `<div class="hours-row"><strong>${dayNames[index]}</strong><label class="closed-toggle"><input type="checkbox" name="${day}-closed" ${value.closed ? "checked" : ""}> Closed</label><input type="time" name="${day}-open" value="${value.open}" aria-label="${dayNames[index]} opening time"><span>to</span><input type="time" name="${day}-close" value="${value.close}" aria-label="${dayNames[index]} closing time"></div>`;
+  }).join("");
+  const days = scheduleDays.map((day, index) => {
+    const dateValue = addDays(scheduleWeek, index), hoursValue = openingHours[day];
+    const shifts = Object.values(scheduledShifts).filter((item) => item.date === dateValue).sort((a, b) => a.start.localeCompare(b.start));
+    const hoursLabel = !hoursValue || hoursValue.closed ? "Closed" : `${clock(hoursValue.open)}–${clock(hoursValue.close)}`;
+    return `<section class="schedule-day"><div class="schedule-day-head"><div><strong>${dayNames[index]}</strong><span>${shortScheduleDate(dateValue)}</span></div><small>${hoursLabel}</small></div><div class="schedule-shifts">${shifts.map((item) => `<article class="schedule-shift role-${item.employeeRole}"><div><strong>${clock(item.start)}–${clock(item.end)}</strong><span>${esc(item.employeeName)}</span><small>${roleName(item.employeeRole)}</small></div><button data-action="delete-schedule-shift" data-id="${item.id}" aria-label="Delete ${esc(item.employeeName)} shift">×</button></article>`).join("") || '<span class="schedule-empty">No staff assigned</span>'}</div></section>`;
+  }).join("");
+  const staff = employees.map(([id, employee]) => {
+    const count = Object.values(scheduledShifts).filter((item) => item.employeeId === id).length;
+    return `<div class="schedule-person"><div><strong>${esc(employee.name)}</strong><span>${roleName(employeeRole(employee))} · ${count} shift${count === 1 ? "" : "s"}</span></div><button data-action="share-employee-schedule" data-id="${id}" ${count ? "" : "disabled"}>Share</button></div>`;
+  }).join("");
+  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Staff schedule</h1><span class="subtle">Set store hours, assign the team, then share a clear weekly schedule.</span></div><div class="schedule-actions"><button data-action="copy-schedule">Copy schedule</button><button class="primary" data-action="print-schedule">Print schedule</button></div></div><div class="schedule-week-picker"><button data-action="schedule-week" data-offset="-7" aria-label="Previous week">←</button><label for="schedule-week"><span>Week of</span><input id="schedule-week" type="date" value="${scheduleWeek}"></label><button data-action="schedule-week" data-offset="7" aria-label="Next week">→</button><span class="pill">${shortScheduleDate(scheduleWeek)}–${shortScheduleDate(weekEnd)}</span></div><div class="schedule-layout"><aside><section class="card"><h2>Add a shift</h2><p class="subtle">Choose an employee, day, and shift time.</p><form data-form="schedule-shift"><label for="schedule-employee">Employee</label><select id="schedule-employee" name="employeeId" required><option value="">Select employee</option>${employees.map(([id, employee]) => `<option value="${esc(id)}">${esc(employee.name)} · ${roleName(employeeRole(employee))}</option>`).join("")}</select><label for="schedule-date">Day</label><select id="schedule-date" name="date" required>${scheduleDays.map((_, index) => { const value = addDays(scheduleWeek, index); return `<option value="${value}">${dayNames[index]} · ${shortScheduleDate(value)}</option>`; }).join("")}</select><div class="fields"><div><label for="schedule-start">Starts</label><input id="schedule-start" name="start" type="time" required></div><div><label for="schedule-end">Ends</label><input id="schedule-end" name="end" type="time" required></div></div><button class="primary wide" type="submit">Add to schedule</button></form></section><details class="card opening-hours"><summary><strong>Weekly opening hours</strong><span class="subtle">Used on every schedule</span></summary><form data-form="opening-hours">${hoursRows}<button class="primary wide" type="submit">Save opening hours</button></form></details><section class="card"><h2>Share with employees</h2><p class="subtle">Share copies one employee’s shifts so you can paste them into a text message.</p>${staff || '<div class="empty">Add employees first.</div>'}</section></aside><div class="weekly-schedule" id="weekly-schedule"><div class="schedule-print-title"><div><div class="eyebrow">Milano’s Pizzeria</div><h2>Staff schedule</h2></div><strong>${shortScheduleDate(scheduleWeek)}–${shortScheduleDate(weekEnd)}</strong></div>${days}</div></div>`;
+}
+
 function detailView() {
   if (!selected) return "";
   const s = current(selected);
@@ -326,16 +383,20 @@ function detailView() {
     ? `<div class="row"><span>${reviewBadge(selected.id)}</span><span class="review-check" aria-label="Reviewed">✓</span></div>`
     : `<div class="row"><span>${reviewBadge(selected.id)}</span><div class="row"><button class="primary" data-action="set-review" data-status="reviewed">Mark Paid</button>${status === "not_reviewed" ? '<button data-action="set-review" data-status="under_review">Partially Paid</button>' : ""}</div></div>`;
   const itemized = shiftRole(s) === "driver" ? `<h2>Itemized entries</h2>${items("Delivery fees", s.deliveries)}${items("Tips", s.tips)}${items("Tips Online", s.onlineTips)}${cashItems(s)}` : "";
-  return `<div class="detail"><button data-action="back-history">← Back to history</button><h1 style="margin-top:20px">Shift record</h1><div class="row"><span class="subtle">${esc(s.employeeName)} · ${roleName(shiftRole(s))} · ${date(s.start)}</span><div class="row"><button data-action="edit">Correct</button><button class="primary" data-action="print">Reprint</button><button data-action="delete-shift">Delete shift</button></div></div><section class="card"><h2>Payment review</h2>${reviewActions}</section>${receipt(selected)}<section class="card">${itemized}<details><summary>Original record & correction history</summary><p class="subtle">Original submission: ${new Date(selected.createdAt).toLocaleString()}</p>${receipt({ ...selected, corrections: undefined })}${Object.values(selected.corrections || {}).sort((a, b) => b.editedAt - a.editedAt).map((c) => `<details><summary>${new Date(c.editedAt).toLocaleString()} · ${esc(c.reason)}</summary>${receipt({ ...c, id: selected!.id, createdBy: selected!.createdBy, createdAt: selected!.createdAt })}</details>`).join("")}</details></section></div>`;
+  const shiftDay = localInput(s.start).slice(0, 10);
+  const relatedFlows = cashFlows.filter((entry) => entry.employeeId === s.employeeId && entry.date === shiftDay);
+  const flowAudit = shiftRole(s) === "driver" ? `<section class="card"><h2>Driver cash-flow history</h2><p class="subtle">Cash recorded in Store Cash for ${esc(shiftDay)}. The cash-out saved ${money(s.startingCashCents || 0)} as starting cash.</p>${relatedFlows.length ? relatedFlows.map((entry) => `<div class="flow-audit"><div><strong>${money(entry.amountCents)} taken</strong><span>${time(entry.createdAt)}</span></div>${Object.values(entry.returns || {}).sort((a, b) => a.returnedAt - b.returnedAt).map((item) => `<div class="flow-return"><strong>+ ${money(item.amountCents)} put back</strong><span>${time(item.returnedAt)}</span></div>`).join("")}<div class="flow-balance"><span>Remaining</span><strong>${money(cashFlowNet(entry))}</strong></div></div>`).join("") : '<div class="empty">No Store Cash flow records found for this driver and date.</div>'}</section>` : "";
+  return `<div class="detail"><button data-action="back-history">← Back to history</button><h1 style="margin-top:20px">Shift record</h1><div class="row"><span class="subtle">${esc(s.employeeName)} · ${roleName(shiftRole(s))} · ${date(s.start)}</span><div class="row"><button data-action="edit">Correct</button><button class="primary" data-action="print">Reprint</button><button data-action="delete-shift">Delete shift</button></div></div><section class="card"><h2>Payment review</h2>${reviewActions}</section>${receipt(selected)}${flowAudit}<section class="card">${itemized}<details><summary>Original record & correction history</summary><p class="subtle">Original submission: ${new Date(selected.createdAt).toLocaleString()}</p>${receipt({ ...selected, corrections: undefined })}${Object.values(selected.corrections || {}).sort((a, b) => b.editedAt - a.editedAt).map((c) => `<details><summary>${new Date(c.editedAt).toLocaleString()} · ${esc(c.reason)}</summary>${receipt({ ...c, id: selected!.id, createdBy: selected!.createdBy, createdAt: selected!.createdAt })}</details>`).join("")}</details></section></div>`;
 }
 
 function render() {
   const datesOpen = root.querySelector<HTMLDetailsElement>(".date-options")?.open;
-  root.innerHTML = `<header><div class="brand"><span class="monogram">M</span><div><strong>milano’s</strong><small>PIZZERIA · EMPLOYEE DESK</small></div></div><nav aria-label="Main navigation"><button data-action="cashout-nav" class="${view === "cashout" || view === "device-login" ? "active" : ""}">Cash-out</button><button data-action="protected-nav" data-view="history" class="${view === "history" || view === "detail" ? "active" : ""}">History</button><button data-action="protected-nav" data-view="employees" class="${view === "employees" ? "active" : ""}">Employees</button><button data-action="protected-nav" data-view="expenses" class="${view === "expenses" ? "active" : ""}">Expenses</button></nav></header>${store.demo ? '<div class="notice">Preview mode · Records are temporary and cleared when you reload.</div>' : ""}<main>${message ? `<div role="alert" class="message ${success ? "success" : ""}">${esc(message)}</div>` : ""}${view === "cashout" ? cashout() : view === "device-login" ? deviceLoginView() : view === "login" ? loginView() : view === "history" && admin ? historyView() : view === "employees" && admin ? employeeView() : view === "expenses" && admin ? organizedExpensesView() : view === "detail" && admin ? detailView() : view === "saved" && selected ? `<div class="saved-heading"><span class="pill">${store.demo ? "Demo saved" : "Cash-out saved"}</span><h1>You’re all set.</h1><p class="subtle">The receipt below is for reference. An admin can print it from History.</p></div>${receipt(selected)}<div class="row" style="justify-content:center"><button class="primary" data-action="new">Next employee</button></div>` : ""}</main><footer>Milano’s Pizzeria · Employee cash-outs</footer>`;
+  root.innerHTML = `<header><div class="brand"><span class="monogram">M</span><div><strong>milano’s</strong><small>PIZZERIA · EMPLOYEE DESK</small></div></div><nav aria-label="Main navigation"><button data-action="cashout-nav" class="${view === "cashout" || view === "device-login" ? "active" : ""}">Cash-out</button><button data-action="protected-nav" data-view="history" class="${view === "history" || view === "detail" ? "active" : ""}">History</button><button data-action="protected-nav" data-view="employees" class="${view === "employees" ? "active" : ""}">Employees</button><button data-action="protected-nav" data-view="expenses" class="${view === "expenses" ? "active" : ""}">Expenses</button></nav></header>${store.demo ? '<div class="notice">Preview mode · Records are temporary and cleared when you reload.</div>' : ""}<main>${message ? `<div role="alert" class="message ${success ? "success" : ""}">${esc(message)}</div>` : ""}${view === "cashout" ? cashout() : view === "device-login" ? deviceLoginView() : view === "login" ? loginView() : view === "history" && admin ? historyView() : view === "employees" && admin ? employeeView() : view === "expenses" && admin ? organizedExpensesView() : view === "schedule" && admin ? scheduleView() : view === "detail" && admin ? detailView() : view === "saved" && selected ? `<div class="saved-heading"><span class="pill">${store.demo ? "Demo saved" : "Cash-out saved"}</span><h1>You’re all set.</h1><p class="subtle">The receipt below is for reference. An admin can print it from History.</p></div>${receipt(selected)}<div class="row" style="justify-content:center"><button class="primary" data-action="new">Next employee</button></div>` : ""}</main><footer>Milano’s Pizzeria · Employee cash-outs</footer>`;
   const cashoutNav = root.querySelector<HTMLButtonElement>('button[data-action="cashout-nav"]');
   cashoutNav?.insertAdjacentHTML("afterend", `<button data-action="store-cash-nav" class="${view === "store-cash" || (view === "device-login" && deviceTarget === "store-cash") ? "active" : ""}">Store Cash</button>`);
   const expensesNav = root.querySelector<HTMLButtonElement>('button[data-view="expenses"]');
   expensesNav?.insertAdjacentHTML("afterend", `<button data-action="protected-nav" data-view="inventory" class="${view === "inventory" ? "active" : ""}">Inventory</button>`);
+  root.querySelector<HTMLButtonElement>('button[data-view="inventory"]')?.insertAdjacentHTML("afterend", `<button data-action="protected-nav" data-view="schedule" class="${view === "schedule" ? "active" : ""}">Schedule</button>`);
   if (view === "device-login" && deviceTarget === "store-cash") cashoutNav?.classList.remove("active");
   if (view === "store-cash") root.querySelector("main")?.insertAdjacentHTML("beforeend", storeCashView());
   if (view === "inventory" && admin) root.querySelector("main")?.insertAdjacentHTML("beforeend", inventoryView());
@@ -362,6 +423,26 @@ function print() {
   window.print();
 }
 
+function printSchedule() {
+  const schedule = document.getElementById("weekly-schedule");
+  if (!schedule) return;
+  document.getElementById("print-root")?.remove();
+  const node = document.createElement("div");
+  node.id = "print-root"; node.className = "schedule-print";
+  node.innerHTML = schedule.outerHTML; node.style.display = "none";
+  document.body.appendChild(node); window.print();
+}
+
+async function shareSchedule(employeeId = "") {
+  const text = scheduleText(employeeId);
+  if (navigator.share) {
+    try { await navigator.share({ title: "Milano’s Pizzeria staff schedule", text }); return "Schedule shared."; }
+    catch (error) { if ((error as { name?: string }).name === "AbortError") return ""; }
+  }
+  await navigator.clipboard.writeText(text);
+  return "Schedule copied. Paste it into a text message or email.";
+}
+
 async function run(action: () => Promise<void>) {
   if (busy) return;
   busy = true; message = ""; success = false; render();
@@ -379,9 +460,14 @@ async function afterLogin() {
   admin = true;
   roster = await store.roster();
   try { rates = await store.getRates(); } catch { rates = { driver: 1300, cook: 1300, cashier: 1300 }; }
-  if (loginTarget === "history") [records, reviews] = await Promise.all([store.history(), store.getReviews()]);
+  if (loginTarget === "history") [records, reviews, cashFlows] = await Promise.all([store.history(), store.getReviews(), store.getCashFlows()]);
   if (loginTarget === "expenses") [records, companies, expenses, storeCashEntries, dailySales, monthlyRentCents] = await Promise.all([store.allHistory(), store.getCompanies(), store.getExpenses(), store.getStoreCash(), store.getDailySales(), store.getMonthlyRent()]);
   if (loginTarget === "inventory") inventory = await store.getInventory();
+  if (loginTarget === "schedule") {
+    const [savedHours, savedSchedule] = await Promise.all([store.getOpeningHours(), store.getSchedule(scheduleWeek)]);
+    openingHours = { ...openingHours, ...savedHours };
+    scheduledShifts = savedSchedule;
+  }
   view = loginTarget;
 }
 
@@ -418,7 +504,7 @@ root.addEventListener("change", (event) => {
     if (el.dataset.draft === "startDate" || el.dataset.draft === "endDate") customDates = true;
     (draft as unknown as Record<string, unknown>)[el.dataset.draft] = el.value;
     if (el.dataset.draft === "employeeId" && cashoutRole === "driver" && !editId) {
-      const startingCash = cashFlows.reduce((sum, entry) => sum + (entry.date === today() && entry.employeeId === el.value ? entry.amountCents : 0), 0);
+      const startingCash = cashFlows.reduce((sum, entry) => sum + (entry.date === today() && entry.employeeId === el.value ? cashFlowNet(entry) : 0), 0);
       draft.startingCash = (startingCash / 100).toFixed(2);
     }
     pending = null; render();
@@ -427,6 +513,11 @@ root.addEventListener("change", (event) => {
   if (el.id === "filter-employee") filterEmployee = el.value;
   if (el.id === "filter-date") filterDate = el.value;
   if (el.id === "expense-month") expenseMonth = el.value;
+  if (el.id === "schedule-week") {
+    scheduleWeek = weekStartFor(el.value);
+    void run(async () => { scheduledShifts = await store.getSchedule(scheduleWeek); });
+    return;
+  }
   if (["filter-employee", "filter-date", "expense-month"].includes(el.id)) render();
 });
 
@@ -534,6 +625,43 @@ root.addEventListener("submit", (event) => {
         cashFlows = await store.getCashFlows();
         message = `${money(amountCents)} cash flow saved for ${employee.name}.`; success = true; break;
       }
+      case "cash-flow-return": {
+        const id = form.dataset.id!, entry = cashFlows.find((item) => item.id === id);
+        if (!entry) throw new Error("That cash-flow record could not be found.");
+        const amountCents = salesCents(String(data.get("amount"))), remaining = cashFlowNet(entry);
+        if (amountCents <= 0) throw new Error("Enter an amount greater than zero.");
+        if (amountCents > remaining) throw new Error(`The driver only has ${money(remaining)} remaining from this cash flow.`);
+        await store.returnCashFlow(id, { amountCents, returnedAt: Date.now(), returnedBy: store.uid() });
+        cashFlows = await store.getCashFlows(); returningCashFlowId = "";
+        message = `${money(amountCents)} put back by ${entry.employeeName}.`; success = true; break;
+      }
+      case "opening-hours": {
+        const next = Object.fromEntries(scheduleDays.map((day) => {
+          const open = String(data.get(`${day}-open`)), close = String(data.get(`${day}-close`));
+          if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(open) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(close)) throw new Error("Enter valid opening and closing times for every day.");
+          return [day, { closed: data.get(`${day}-closed`) === "on", open, close }];
+        })) as OpeningHours;
+        await store.saveOpeningHours(next); openingHours = next;
+        message = "Weekly opening hours saved."; success = true; break;
+      }
+      case "schedule-shift": {
+        const employeeId = String(data.get("employeeId")), employee = roster[employeeId];
+        const shiftDate = String(data.get("date")), start = String(data.get("start")), end = String(data.get("end"));
+        if (!employee || employee.active === false) throw new Error("Select an active employee.");
+        if (!scheduleDays.some((_, index) => addDays(scheduleWeek, index) === shiftDate)) throw new Error("Select a day in the displayed week.");
+        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(start) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(end) || start === end) throw new Error("Enter a valid shift start and end time.");
+        const minutes = (value: string) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
+        const range = (from: string, to: string) => { const a = minutes(from), b = minutes(to); return [a, b <= a ? b + 1440 : b] as const; };
+        const [nextStart, nextEnd] = range(start, end);
+        if (Object.values(scheduledShifts).some((item) => {
+          if (item.employeeId !== employeeId || item.date !== shiftDate) return false;
+          const [existingStart, existingEnd] = range(item.start, item.end);
+          return nextStart < existingEnd && existingStart < nextEnd;
+        })) throw new Error("That employee already has an overlapping shift on this day.");
+        const item: ScheduledShift = { id: crypto.randomUUID(), employeeId, employeeName: employee.name, employeeRole: employeeRole(employee), date: shiftDate, start, end, createdAt: Date.now(), createdBy: store.uid() };
+        await store.saveScheduledShift(scheduleWeek, item); scheduledShifts = await store.getSchedule(scheduleWeek);
+        message = `${employee.name} added to ${dayNames[scheduleDays.findIndex((_, index) => addDays(scheduleWeek, index) === shiftDate)]}.`; success = true; break;
+      }
       case "inventory-add": {
         const name = String(data.get("name")).trim(), targetType = String(data.get("targetType")) as InventoryTargetType;
         if (!name) throw new Error("Enter an inventory item name.");
@@ -599,6 +727,27 @@ root.addEventListener("click", (event) => {
         await store.saveInventoryItem({ ...item, currentValue: item.targetValue, updatedAt: Date.now(), updatedBy: store.uid() });
         inventory = await store.getInventory(); editingInventoryId = ""; message = `${item.name} reset to its target.`; success = true; break;
       }
+      case "schedule-week":
+        scheduleWeek = addDays(scheduleWeek, Number(button.dataset.offset));
+        scheduledShifts = await store.getSchedule(scheduleWeek);
+        break;
+      case "delete-schedule-shift": {
+        const item = scheduledShifts[button.dataset.id!];
+        if (!item || !window.confirm(`Remove ${item.employeeName} from this shift?`)) return;
+        await store.deleteScheduledShift(scheduleWeek, item.id); scheduledShifts = await store.getSchedule(scheduleWeek);
+        message = "Shift removed from the schedule."; success = true; break;
+      }
+      case "copy-schedule": {
+        const result = await shareSchedule();
+        if (result) { message = result; success = true; }
+        break;
+      }
+      case "share-employee-schedule": {
+        const result = await shareSchedule(button.dataset.id!);
+        if (result) { message = result; success = true; }
+        break;
+      }
+      case "print-schedule": printSchedule(); break;
       case "protected-nav": await openProtected(button.dataset.view as ProtectedView); break;
       case "cashout-nav":
         if (admin) await store.logout();
@@ -701,6 +850,8 @@ root.addEventListener("click", (event) => {
       }
       case "edit-store-cash": editingStoreCashId = button.dataset.id!; break;
       case "cancel-store-cash-edit": editingStoreCashId = ""; break;
+      case "cash-flow-return": returningCashFlowId = button.dataset.id!; break;
+      case "cancel-cash-return": returningCashFlowId = ""; break;
       case "edit": {
         if (!selected) return;
         const s = current(selected); editId = selected.id;

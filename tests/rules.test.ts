@@ -410,6 +410,11 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertFails(remove(ref(db("admin"), "cashFlows/flow-1")));
       await assertFails(set(ref(db("kiosk"), "cashFlows/cook-flow"), { ...cashFlow, id: "cook-flow", employeeId: "chris", employeeName: "Chris" }));
       await assertFails(set(ref(db("stranger"), "cashFlows/stranger-flow"), { ...cashFlow, id: "stranger-flow", createdBy: "stranger" }));
+      const returned = { amountCents: 500, returnedAt: Date.now(), returnedBy: "kiosk" };
+      await assertSucceeds(set(ref(db("kiosk"), "cashFlows/flow-1/returns/return-1"), returned));
+      await assertFails(update(ref(db("kiosk"), "cashFlows/flow-1/returns/return-1"), { amountCents: 1 }));
+      await assertFails(remove(ref(db("admin"), "cashFlows/flow-1/returns/return-1")));
+      await assertFails(set(ref(db("kiosk"), "cashFlows/flow-1/returns/too-much"), { ...returned, amountCents: 2000 }));
 
       const sales = {
         date: "2026-09-20",
@@ -425,6 +430,18 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertSucceeds(set(ref(db("admin"), "dailySales/2026-09-20"), sales));
       await assertFails(set(ref(db("admin"), "dailySales/2026-09-20"), { ...sales, pcSalesCents: -1 }));
       await assertSucceeds(remove(ref(db("admin"), "dailySales/2026-09-20")));
+    });
+    it("keeps opening hours and staff schedules admin-only", async () => {
+      const hours = Object.fromEntries(["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((day) => [day, { closed: false, open: "11:00", close: "22:00" }]));
+      await assertFails(get(ref(db("kiosk"), "openingHours")));
+      await assertFails(set(ref(db("kiosk"), "openingHours"), hours));
+      await assertSucceeds(set(ref(db("admin"), "openingHours"), hours));
+      const shift = { id: "shift-1", employeeId: "alex", employeeName: "Alex", employeeRole: "driver", date: "2026-09-28", start: "16:00", end: "22:00", createdAt: Date.now(), createdBy: "admin" };
+      await assertFails(get(ref(db("kiosk"), "schedules/2026-09-28")));
+      await assertFails(set(ref(db("kiosk"), "schedules/2026-09-28/shift-1"), { ...shift, createdBy: "kiosk" }));
+      await assertSucceeds(set(ref(db("admin"), "schedules/2026-09-28/shift-1"), shift));
+      await assertFails(set(ref(db("admin"), "schedules/2026-09-28/spoofed"), { ...shift, id: "spoofed", employeeName: "Other" }));
+      await assertSucceeds(remove(ref(db("admin"), "schedules/2026-09-28/shift-1")));
     });
     it("keeps inventory PIN-protected and validates quantity and percentage targets", async () => {
       const quantity = {

@@ -3,6 +3,8 @@ import {
   cents,
   salesCents,
   storeCashAmount,
+  cashFlowNet,
+  cashFlowReturned,
   cashTotals,
   billNumber,
   totals,
@@ -21,6 +23,19 @@ const shift: Shift = {
   tips: { a: 225, b: 375 },
 };
 describe("cash-out accounting", () => {
+  it("keeps cash-flow withdrawals and returns auditable", () => {
+    const flow = {
+      id: "flow", employeeId: "driver", employeeName: "Alex", date: "2026-09-27",
+      amountCents: 2000, createdAt: 1, createdBy: "kiosk",
+      returns: {
+        first: { amountCents: 500, returnedAt: 2, returnedBy: "kiosk" },
+        second: { amountCents: 250, returnedAt: 3, returnedBy: "kiosk" },
+      },
+    };
+    expect(cashFlowReturned(flow)).toBe(750);
+    expect(cashFlowNet(flow)).toBe(1250);
+    expect(flow.amountCents).toBe(2000);
+  });
   it("keeps cents exact and rejects malformed input", () => {
     expect(cents("7.50")).toBe(750);
     for (const n of ["1.005", "-3", "0", "1e2", "NaN", "1001"])

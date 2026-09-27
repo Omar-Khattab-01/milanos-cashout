@@ -459,6 +459,12 @@ a {
   }
   header {
     padding: 16px;
+    flex-wrap: wrap;
+  }
+  header nav {
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 3px;
   }
   .brand strong {
     font-size: 22px;
@@ -703,6 +709,9 @@ a {
 .chart-fill.payroll {
   background: #4978a8;
 }
+.chart-fill.delivery {
+  background: #b46535;
+}
 .chart-fill.rent {
   background: #8060a8;
 }
@@ -746,7 +755,7 @@ a {
 }
 .inventory-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 16px;
 }
 .inventory-item {
@@ -760,6 +769,9 @@ a {
 .inventory-item.needs-stock {
   border-top-color: #c78032;
 }
+.inventory-item.excess-stock {
+  border-top-color: #4978a8;
+}
 .inventory-item h3 {
   margin: 0 0 5px;
 }
@@ -770,6 +782,9 @@ a {
 }
 .needs-stock .inventory-status {
   color: #9a5c18;
+}
+.excess-stock .inventory-status {
+  color: #34658f;
 }
 .inventory-progress {
   height: 9px;
@@ -786,6 +801,57 @@ a {
 }
 .needs-stock .inventory-progress span {
   background: #c78032;
+}
+.excess-stock .inventory-progress span {
+  background: #4978a8;
+}
+.inventory-shopping-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: stretch;
+}
+.inventory-item-open {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  min-width: 0;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+.inventory-item-open:hover {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+}
+.inventory-item-open > span {
+  display: grid;
+  gap: 5px;
+}
+.inventory-item-open small {
+  color: #69756d;
+  font-size: 12px;
+}
+.inventory-count {
+  flex: 0 0 auto;
+  text-align: right;
+}
+.inventory-count strong {
+  font-size: 18px;
+}
+.inventory-reset {
+  white-space: nowrap;
+}
+.inventory-editor {
+  padding-top: 17px;
+  border-top: 1px solid var(--line);
+}
+.inventory-editor-actions {
+  justify-content: space-between;
+  margin-top: 12px;
 }
 .inventory-update {
   display: grid;
@@ -828,5 +894,11 @@ a {
   }
   .inventory-update button {
     grid-column: 1 / -1;
+  }
+  .inventory-shopping-row {
+    grid-template-columns: 1fr;
+  }
+  .inventory-reset {
+    width: 100%;
   }
 }

@@ -37,6 +37,10 @@
       "cashierRateCents": {
         ".write": "auth != null && root.child('admins').child(auth.uid).val() === true && newData.exists()",
         ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 1 && newData.val() <= 100000"
+      },
+      "monthlyRentCents": {
+        ".write": "auth != null && root.child('admins').child(auth.uid).val() === true && newData.exists()",
+        ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 0 && newData.val() <= 10000000"
       }
     },
     "companies": {

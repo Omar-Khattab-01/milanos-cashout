@@ -95,6 +95,11 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertFails(get(ref(db("kiosk"), "cashouts")));
       await assertFails(set(ref(db("kiosk"), "settings/rateCents"), 900));
       await assertFails(set(ref(db("kiosk"), "admins/kiosk"), true));
+      await assertFails(set(ref(db("kiosk"), "settings/monthlyRentCents"), 500000));
+      await assertSucceeds(set(ref(db("admin"), "settings/monthlyRentCents"), 500000));
+      await assertSucceeds(set(ref(db("admin"), "settings/monthlyRentCents"), 0));
+      await assertFails(set(ref(db("admin"), "settings/monthlyRentCents"), -1));
+      await assertFails(remove(ref(db("admin"), "settings/monthlyRentCents")));
       await assertSucceeds(get(ref(db("admin"), "cashouts")));
     });
     it("allows only admins to update valid cash-out review states", async () => {

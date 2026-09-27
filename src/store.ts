@@ -60,6 +60,7 @@ let rates: Record<EmployeeRole, number> = {
   cook: 1300,
   cashier: 1300,
 };
+let monthlyRentCents = 0;
 const records: Record<string, Cashout> = {};
 let companies: Record<string, Company> = {
   supplier: { name: "Sample Food Supplier" },
@@ -158,6 +159,15 @@ export async function setRate(role: EmployeeRole, value: number) {
   const key = role === "driver" ? "rateCents" : `${role}RateCents`;
   if (db) await set(ref(db, `settings/${key}`), value);
   else rates[role] = value;
+}
+export async function getMonthlyRent(): Promise<number> {
+  if (!db) return monthlyRentCents;
+  const value = (await get(ref(db, "settings/monthlyRentCents"))).val();
+  return Number.isInteger(value) && value >= 0 ? value : 0;
+}
+export async function setMonthlyRent(value: number) {
+  if (db) await set(ref(db, "settings/monthlyRentCents"), value);
+  else monthlyRentCents = value;
 }
 export async function saveEmployee(id: string, employee: Employee) {
   if (db) await set(ref(db, `employees/${id}`), employee);

@@ -25,6 +25,7 @@ type EntryKind = "deliveries" | "tips" | "onlineTips";
 type ListKind = EntryKind | "cashDeliveries";
 type ProtectedView = "history" | "employees" | "expenses";
 type DeviceView = "cashout" | "store-cash";
+type ExpenseTab = "overview" | "sales" | "suppliers" | "payroll" | "settings";
 
 let roster: Record<string, Employee> = {};
 let rates: Record<EmployeeRole, number> = { driver: 1300, cook: 1300, cashier: 1300 };
@@ -46,6 +47,8 @@ let registerCash: Record<string, RegisterCash> = {};
 let editingStoreCashId = "";
 let dailySales: Record<string, DailySales> = {};
 let expenseMonth = today().slice(0, 7);
+let expenseTab: ExpenseTab = "overview";
+let monthlyRentCents = 0;
 let customDates = false;
 let pending: Cashout | null = null;
 let editId = "";
@@ -220,6 +223,57 @@ function expensesView() {
   return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Monthly expenses</h1><span class="subtle">Track supplier orders, hourly wages, deliveries, and tips.</span></div><input id="expense-month" type="month" value="${expenseMonth}"></div><div class="split"><section class="card"><h2>Monthly overview</h2><div class="summary-line"><span>Food cost</span><strong>${money(foodCost)}</strong></div><div class="summary-line"><span>Employee cost (hourly pay)</span><strong>${money(employeeCost)}</strong></div><div class="grand"><span>Total tracked cost</span><strong>${money(foodCost + employeeCost)}</strong></div><p class="subtle">Delivery fees and tips are listed separately below and are not included in total tracked cost.</p>${Object.keys(byCompany).length ? `<h3>Food cost by company</h3>${Object.entries(byCompany).sort((a, b) => b[1] - a[1]).map(([name, amount]) => `<div class="summary-line"><span>${esc(name)}</span><strong>${money(amount)}</strong></div>`).join("")}` : ""}</section><section class="card"><h2>Add supplier company</h2><form data-form="company"><label for="company-name">Company name</label><div class="entry-input"><input id="company-name" name="name" maxlength="100" placeholder="Supplier name" required><button class="primary" type="submit">Add</button></div></form><h2 style="margin-top:28px">Add order expense</h2><form data-form="expense"><label for="expense-company">Company</label><select id="expense-company" name="companyId" required><option value="">Select company</option>${Object.entries(companies).sort((a, b) => a[1].name.localeCompare(b[1].name)).map(([id, c]) => `<option value="${esc(id)}">${esc(c.name)}</option>`).join("")}</select><label for="expense-date">Order date</label><input id="expense-date" name="date" type="date" value="${today()}" required><label for="expense-amount">Total ordered</label><input id="expense-amount" name="amount" inputmode="decimal" placeholder="0.00" required><button class="primary wide" type="submit">Save expense</button></form></section></div><section class="card table-wrap"><h2>Deliveries and tips</h2>${Object.keys(driverPayouts).length ? `<table><thead><tr><th>Driver</th><th>Delivery fees</th><th>Tips</th><th>Total</th></tr></thead><tbody>${Object.values(driverPayouts).sort((a, b) => a.name.localeCompare(b.name)).map((row) => `<tr><td><strong>${esc(row.name)}</strong></td><td>${money(row.deliveries)}</td><td>${money(row.tips)}</td><td><strong>${money(row.deliveries + row.tips)}</strong></td></tr>`).join("")}<tr><td><strong>Monthly total</strong></td><td><strong>${money(deliveryTotal)}</strong></td><td><strong>${money(tipTotal)}</strong></td><td><strong>${money(deliveryTotal + tipTotal)}</strong></td></tr></tbody></table>` : '<div class="empty">No driver cash-outs for this month.</div>'}</section><section class="card table-wrap"><h2>Orders for ${esc(expenseMonth)}</h2>${monthExpenses.length ? `<table><thead><tr><th>Date</th><th>Company</th><th>Total</th><th></th></tr></thead><tbody>${monthExpenses.map((e) => `<tr><td>${esc(e.date)}</td><td>${esc(e.companyName)}</td><td>${money(e.amountCents)}</td><td><button data-action="delete-expense" data-id="${e.id}">Delete</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No supplier orders entered for this month.</div>'}</section>`;
 }
 
+function organizedExpensesView() {
+  const monthExpenses = expenses.filter((entry) => entry.date.startsWith(expenseMonth));
+  const monthShifts = records.filter((record) => localInput(current(record).start).startsWith(expenseMonth));
+  const monthSales = Object.values(dailySales).filter((entry) => entry.date.startsWith(expenseMonth));
+  const foodCost = monthExpenses.reduce((sum, entry) => sum + entry.amountCents, 0);
+  const employeeCost = monthShifts.reduce((sum, record) => sum + totals(current(record)).wages, 0);
+  const recordedSales = monthSales.reduce((sum, entry) => sum + entry.pcSalesCents + entry.onlineOrdersCents, 0);
+  const operatingCosts = foodCost + employeeCost + monthlyRentCents;
+  const amountLeft = recordedSales - operatingCosts;
+  const byCompany = monthExpenses.reduce<Record<string, number>>((result, entry) => {
+    result[entry.companyName] = (result[entry.companyName] || 0) + entry.amountCents;
+    return result;
+  }, {});
+  const payroll = monthShifts.reduce<Record<string, { name: string; role: EmployeeRole; wages: number; deliveries: number; tips: number }>>((result, record) => {
+    const shift = current(record), shiftTotals = totals(shift), role = shiftRole(shift);
+    result[shift.employeeId] ||= { name: shift.employeeName, role, wages: 0, deliveries: 0, tips: 0 };
+    result[shift.employeeId].wages += shiftTotals.wages;
+    if (role === "driver") {
+      result[shift.employeeId].deliveries += shiftTotals.deliveries;
+      result[shift.employeeId].tips += shiftTotals.tips + shiftTotals.onlineTips + shiftTotals.cashTips;
+    }
+    return result;
+  }, {});
+  const deliveryTotal = Object.values(payroll).reduce((sum, row) => sum + row.deliveries, 0);
+  const tipTotal = Object.values(payroll).reduce((sum, row) => sum + row.tips, 0);
+  const chartMax = Math.max(recordedSales, operatingCosts, Math.abs(amountLeft), foodCost, employeeCost, monthlyRentCents, 1);
+  const chartBar = (label: string, amount: number, tone = "") => `<div class="chart-row"><div class="chart-label"><span>${label}</span><strong>${money(amount)}</strong></div><div class="chart-track"><span class="chart-fill ${tone}" style="width:${Math.max(2, Math.round((Math.abs(amount) / chartMax) * 100))}%"></span></div></div>`;
+  const tabs = ([
+    ["overview", "Overview"],
+    ["sales", "Sales"],
+    ["suppliers", "Supplier Costs"],
+    ["payroll", "Payroll"],
+    ["settings", "Settings"],
+  ] as [ExpenseTab, string][]).map(([id, label]) => `<button data-action="expense-tab" data-tab="${id}" class="${expenseTab === id ? "active" : ""}" aria-selected="${expenseTab === id}">${label}</button>`).join("");
+
+  const overview = `<div class="expense-grid"><section class="card"><div class="eyebrow">Monthly performance</div><h2>Money in and out</h2><div class="summary-line"><span>Recorded sales</span><strong>${money(recordedSales)}</strong></div><div class="summary-line"><span>Food cost</span><strong>${money(foodCost)}</strong></div><div class="summary-line"><span>Employee cost (hourly pay)</span><strong>${money(employeeCost)}</strong></div><div class="summary-line"><span>Fixed monthly rent</span><strong>${money(monthlyRentCents)}</strong></div><div class="summary-line total-line"><span>Total operating costs</span><strong>${money(operatingCosts)}</strong></div><div class="grand result-total ${amountLeft < 0 ? "negative" : "positive"}"><span>Amount left after tracked costs</span><strong>${money(amountLeft)}</strong></div><p class="subtle">Recorded sales − food costs − hourly employee pay − rent. Delivery fees and tips stay separate, as requested, and are not deducted here.</p></section><section class="card chart-card"><div class="eyebrow">Cash flow</div><h2>Sales compared with costs</h2>${chartBar("Recorded sales", recordedSales, "income")}${chartBar("Operating costs", operatingCosts, "cost")}${chartBar("Amount left", amountLeft, amountLeft < 0 ? "loss" : "remaining")}</section></div><section class="card chart-card"><div class="row"><div><div class="eyebrow">Cost breakdown</div><h2>Where operating costs went</h2></div><span class="pill">${esc(expenseMonth)}</span></div>${chartBar("Food", foodCost, "food")}${chartBar("Hourly employee pay", employeeCost, "payroll")}${chartBar("Rent", monthlyRentCents, "rent")}</section>`;
+
+  const sales = dailySalesView()
+    .replace("Month difference:", "Month unreconciled difference:")
+    .replace("<th>Difference</th>", "<th>Unreconciled difference</th>")
+    .replace("</p></div>", "</p><p class=\"subtle\"><strong>What it means:</strong> $0 is balanced. A positive amount means some sales are not matched to a recorded payment source. A negative amount means recorded payment sources are higher than sales.</p></div>");
+
+  const suppliers = `<div class="split"><section class="card"><h2>Add supplier company</h2><form data-form="company"><label for="company-name">Company name</label><div class="entry-input"><input id="company-name" name="name" maxlength="100" placeholder="Supplier name" required><button class="primary" type="submit">Add</button></div></form><h2 style="margin-top:28px">Add order expense</h2><form data-form="expense"><label for="expense-company">Company</label><select id="expense-company" name="companyId" required><option value="">Select company</option>${Object.entries(companies).sort((a, b) => a[1].name.localeCompare(b[1].name)).map(([id, company]) => `<option value="${esc(id)}">${esc(company.name)}</option>`).join("")}</select><label for="expense-date">Order date</label><input id="expense-date" name="date" type="date" value="${today()}" required><label for="expense-amount">Total ordered</label><input id="expense-amount" name="amount" inputmode="decimal" placeholder="0.00" required><button class="primary wide" type="submit">Save expense</button></form></section><section class="card"><h2>Food cost by company</h2>${Object.keys(byCompany).length ? Object.entries(byCompany).sort((a, b) => b[1] - a[1]).map(([name, amount]) => `<div class="summary-line"><span>${esc(name)}</span><strong>${money(amount)}</strong></div>`).join("") + `<div class="grand"><span>Total food cost</span><strong>${money(foodCost)}</strong></div>` : '<div class="empty">No supplier costs entered for this month.</div>'}</section></div><section class="card table-wrap"><h2>Supplier orders for ${esc(expenseMonth)}</h2>${monthExpenses.length ? `<table><thead><tr><th>Date</th><th>Company</th><th>Total</th><th></th></tr></thead><tbody>${monthExpenses.map((entry) => `<tr><td>${esc(entry.date)}</td><td>${esc(entry.companyName)}</td><td>${money(entry.amountCents)}</td><td><button data-action="delete-expense" data-id="${entry.id}">Delete</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No supplier orders entered for this month.</div>'}</section>`;
+
+  const payrollView = `<section class="card table-wrap"><div class="row"><div><h2>Employee pay for ${esc(expenseMonth)}</h2><p class="subtle">Hourly pay is included in operating costs. Driver delivery fees and tips are shown separately.</p></div><span class="pill">Hourly total ${money(employeeCost)}</span></div>${Object.keys(payroll).length ? `<table><thead><tr><th>Employee</th><th>Role</th><th>Hourly pay</th><th>Delivery fees</th><th>Tips</th></tr></thead><tbody>${Object.values(payroll).sort((a, b) => a.name.localeCompare(b.name)).map((row) => `<tr><td><strong>${esc(row.name)}</strong></td><td>${roleName(row.role)}</td><td>${money(row.wages)}</td><td>${row.role === "driver" ? money(row.deliveries) : "—"}</td><td>${row.role === "driver" ? money(row.tips) : "—"}</td></tr>`).join("")}<tr><td colspan="2"><strong>Monthly totals</strong></td><td><strong>${money(employeeCost)}</strong></td><td><strong>${money(deliveryTotal)}</strong></td><td><strong>${money(tipTotal)}</strong></td></tr></tbody></table>` : '<div class="empty">No employee cash-outs for this month.</div>'}</section>`;
+
+  const settings = `<section class="card settings-card"><div class="eyebrow">Expense settings</div><h2>Fixed monthly rent</h2><p class="subtle">This amount is automatically counted once in every month’s overview. Enter $0.00 if there is no rent to count.</p><form data-form="monthly-rent"><label for="monthly-rent">Rent paid each month</label><input id="monthly-rent" name="amount" inputmode="decimal" value="${(monthlyRentCents / 100).toFixed(2)}" required><button class="primary" type="submit">Save monthly rent</button></form></section>`;
+  const content: Record<ExpenseTab, string> = { overview, sales, suppliers, payroll: payrollView, settings };
+  return `<div class="intro expenses-intro"><div><div class="eyebrow">Management</div><h1>Business finances</h1><span class="subtle">Review sales, operating costs, and the amount left for each month.</span></div><label class="month-picker" for="expense-month"><span>Viewing month</span><input id="expense-month" type="month" value="${expenseMonth}"></label></div><nav class="expense-tabs" aria-label="Expense sections" role="tablist">${tabs}</nav><div class="expense-panel" role="tabpanel">${content[expenseTab]}</div>`;
+}
+
 function detailView() {
   if (!selected) return "";
   const s = current(selected);
@@ -235,24 +289,11 @@ function detailView() {
 
 function render() {
   const datesOpen = root.querySelector<HTMLDetailsElement>(".date-options")?.open;
-  root.innerHTML = `<header><div class="brand"><span class="monogram">M</span><div><strong>milano’s</strong><small>PIZZERIA · EMPLOYEE DESK</small></div></div><nav aria-label="Main navigation"><button data-action="cashout-nav" class="${view === "cashout" || view === "device-login" ? "active" : ""}">Cash-out</button><button data-action="protected-nav" data-view="history" class="${view === "history" || view === "detail" ? "active" : ""}">History</button><button data-action="protected-nav" data-view="employees" class="${view === "employees" ? "active" : ""}">Employees</button><button data-action="protected-nav" data-view="expenses" class="${view === "expenses" ? "active" : ""}">Expenses</button></nav></header>${store.demo ? '<div class="notice">Preview mode · Records are temporary and cleared when you reload.</div>' : ""}<main>${message ? `<div role="alert" class="message ${success ? "success" : ""}">${esc(message)}</div>` : ""}${view === "cashout" ? cashout() : view === "device-login" ? deviceLoginView() : view === "login" ? loginView() : view === "history" && admin ? historyView() : view === "employees" && admin ? employeeView() : view === "expenses" && admin ? expensesView() : view === "detail" && admin ? detailView() : view === "saved" && selected ? `<div class="saved-heading"><span class="pill">${store.demo ? "Demo saved" : "Cash-out saved"}</span><h1>You’re all set.</h1><p class="subtle">The receipt below is for reference. An admin can print it from History.</p></div>${receipt(selected)}<div class="row" style="justify-content:center"><button class="primary" data-action="new">Next employee</button></div>` : ""}</main><footer>Milano’s Pizzeria · Employee cash-outs</footer>`;
+  root.innerHTML = `<header><div class="brand"><span class="monogram">M</span><div><strong>milano’s</strong><small>PIZZERIA · EMPLOYEE DESK</small></div></div><nav aria-label="Main navigation"><button data-action="cashout-nav" class="${view === "cashout" || view === "device-login" ? "active" : ""}">Cash-out</button><button data-action="protected-nav" data-view="history" class="${view === "history" || view === "detail" ? "active" : ""}">History</button><button data-action="protected-nav" data-view="employees" class="${view === "employees" ? "active" : ""}">Employees</button><button data-action="protected-nav" data-view="expenses" class="${view === "expenses" ? "active" : ""}">Expenses</button></nav></header>${store.demo ? '<div class="notice">Preview mode · Records are temporary and cleared when you reload.</div>' : ""}<main>${message ? `<div role="alert" class="message ${success ? "success" : ""}">${esc(message)}</div>` : ""}${view === "cashout" ? cashout() : view === "device-login" ? deviceLoginView() : view === "login" ? loginView() : view === "history" && admin ? historyView() : view === "employees" && admin ? employeeView() : view === "expenses" && admin ? organizedExpensesView() : view === "detail" && admin ? detailView() : view === "saved" && selected ? `<div class="saved-heading"><span class="pill">${store.demo ? "Demo saved" : "Cash-out saved"}</span><h1>You’re all set.</h1><p class="subtle">The receipt below is for reference. An admin can print it from History.</p></div>${receipt(selected)}<div class="row" style="justify-content:center"><button class="primary" data-action="new">Next employee</button></div>` : ""}</main><footer>Milano’s Pizzeria · Employee cash-outs</footer>`;
   const cashoutNav = root.querySelector<HTMLButtonElement>('button[data-action="cashout-nav"]');
   cashoutNav?.insertAdjacentHTML("afterend", `<button data-action="store-cash-nav" class="${view === "store-cash" || (view === "device-login" && deviceTarget === "store-cash") ? "active" : ""}">Store Cash</button>`);
   if (view === "device-login" && deviceTarget === "store-cash") cashoutNav?.classList.remove("active");
   if (view === "store-cash") root.querySelector("main")?.insertAdjacentHTML("beforeend", storeCashView());
-  if (view === "expenses" && admin) {
-    const intro = root.querySelector("main")?.querySelector(".intro");
-    const subtitle = intro?.querySelector<HTMLElement>(".subtle");
-    if (subtitle) subtitle.textContent = "Track costs and reconcile daily sales.";
-    const salesHtml = dailySalesView()
-      .replace("Month difference:", "Month unreconciled difference:")
-      .replace("<th>Difference</th>", "<th>Unreconciled difference</th>")
-      .replace(
-        "</p></div>",
-        "</p><p class=\"subtle\"><strong>What it means:</strong> $0 is balanced. A positive amount means some sales are not matched to a recorded payment source. A negative amount means recorded payment sources are higher than sales.</p></div>",
-      );
-    intro?.insertAdjacentHTML("afterend", salesHtml);
-  }
   if (datesOpen) root.querySelector<HTMLDetailsElement>(".date-options")!.open = true;
   if (busy) root.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
 }
@@ -286,7 +327,7 @@ async function afterLogin() {
   roster = await store.roster();
   try { rates = await store.getRates(); } catch { rates = { driver: 1300, cook: 1300, cashier: 1300 }; }
   if (loginTarget === "history") [records, reviews] = await Promise.all([store.history(), store.getReviews()]);
-  if (loginTarget === "expenses") [records, companies, expenses, storeCashEntries, dailySales] = await Promise.all([store.allHistory(), store.getCompanies(), store.getExpenses(), store.getStoreCash(), store.getDailySales()]);
+  if (loginTarget === "expenses") [records, companies, expenses, storeCashEntries, dailySales, monthlyRentCents] = await Promise.all([store.allHistory(), store.getCompanies(), store.getExpenses(), store.getStoreCash(), store.getDailySales(), store.getMonthlyRent()]);
   view = loginTarget;
 }
 
@@ -432,6 +473,11 @@ root.addEventListener("submit", (event) => {
         dailySales = await store.getDailySales(); expenseMonth = salesDate.slice(0, 7);
         message = "Daily sales saved."; success = true; break;
       }
+      case "monthly-rent": {
+        monthlyRentCents = salesCents(String(data.get("amount")));
+        await store.setMonthlyRent(monthlyRentCents);
+        message = `Monthly rent saved: ${money(monthlyRentCents)}.`; success = true; break;
+      }
       case "company": {
         const name = String(data.get("name")).trim();
         if (!name) throw new Error("Enter a company name.");
@@ -443,7 +489,9 @@ root.addEventListener("submit", (event) => {
         const companyId = String(data.get("companyId")), company = companies[companyId], expenseDate = String(data.get("date"));
         if (!company) throw new Error("Select a company.");
         if (!/^\d{4}-\d{2}-\d{2}$/.test(expenseDate)) throw new Error("Enter the order date.");
-        await store.saveExpense({ id: crypto.randomUUID(), companyId, companyName: company.name, date: expenseDate, amountCents: cents(String(data.get("amount"))), createdAt: Date.now(), createdBy: store.uid() });
+        const amountCents = salesCents(String(data.get("amount")));
+        if (amountCents <= 0) throw new Error("Enter an order total greater than zero.");
+        await store.saveExpense({ id: crypto.randomUUID(), companyId, companyName: company.name, date: expenseDate, amountCents, createdAt: Date.now(), createdBy: store.uid() });
         expenses = await store.getExpenses(); expenseMonth = expenseDate.slice(0, 7);
         message = "Order expense saved."; success = true; break;
       }
@@ -458,6 +506,7 @@ root.addEventListener("click", (event) => {
   if (!button) return;
   void run(async () => {
     switch (button.dataset.action) {
+      case "expense-tab": expenseTab = button.dataset.tab as ExpenseTab; break;
       case "protected-nav": await openProtected(button.dataset.view as ProtectedView); break;
       case "cashout-nav":
         if (admin) await store.logout();

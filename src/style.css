@@ -600,3 +600,126 @@ a {
   border-color: var(--green);
   color: white;
 }
+.expenses-intro {
+  margin-bottom: 18px;
+}
+.month-picker {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+  color: #657067;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+.month-picker input {
+  width: 100%;
+  color: var(--ink);
+  font-size: 14px;
+  text-transform: none;
+}
+.expense-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin-bottom: 20px;
+  padding: 4px;
+  border-radius: 12px;
+  background: #e8ede7;
+}
+.expense-tabs button {
+  flex: 1 0 auto;
+  border-color: transparent;
+  background: transparent;
+  white-space: nowrap;
+}
+.expense-tabs button.active {
+  border-color: var(--green);
+  background: var(--green);
+  color: white;
+}
+.expense-panel > .card,
+.expense-panel > .split,
+.expense-panel > .expense-grid {
+  margin-bottom: 20px;
+}
+.expense-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: 20px;
+}
+.total-line {
+  padding-top: 15px;
+  border-top: 1px solid var(--line);
+}
+.result-total {
+  padding: 18px;
+  border: 0;
+  border-radius: 10px;
+  background: #e8f2e9;
+}
+.result-total.negative {
+  background: #fbe8e6;
+  color: #8a2823;
+}
+.chart-card h2 {
+  margin-bottom: 25px;
+}
+.chart-row {
+  margin: 19px 0;
+}
+.chart-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 7px;
+  font-size: 13px;
+}
+.chart-track {
+  display: block;
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf0ec;
+}
+.chart-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #5f7f65;
+}
+.chart-fill.income,
+.chart-fill.remaining {
+  background: #2d7a4b;
+}
+.chart-fill.cost,
+.chart-fill.loss {
+  background: var(--red);
+}
+.chart-fill.food {
+  background: #c78032;
+}
+.chart-fill.payroll {
+  background: #4978a8;
+}
+.chart-fill.rent {
+  background: #8060a8;
+}
+.settings-card {
+  max-width: 620px;
+}
+.settings-card button {
+  margin-top: 16px;
+}
+@media (max-width: 800px) {
+  .expense-grid {
+    grid-template-columns: 1fr;
+  }
+  .expenses-intro {
+    gap: 18px;
+  }
+  .month-picker {
+    width: 100%;
+  }
+}

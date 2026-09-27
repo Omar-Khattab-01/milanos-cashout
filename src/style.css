@@ -309,6 +309,12 @@ input[type="number"] {
   background: #e7f0e7;
   color: #224b34;
 }
+.draft-saved {
+  margin: 9px 0 0;
+  color: #2e6947;
+  font-size: 12px;
+  font-weight: 600;
+}
 .hidden {
   display: none !important;
 }

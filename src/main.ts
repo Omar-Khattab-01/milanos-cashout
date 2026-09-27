@@ -82,6 +82,68 @@ let filterDate = "";
 const entryInputs: Record<string, Record<string, string>> = {};
 const emptyConfirmed = () => ({ deliveries: true, tips: false, onlineTips: false, cashDeliveries: true });
 let confirmed = emptyConfirmed();
+type SavedCashoutDraft = {
+  role: EmployeeRole;
+  draft: ReturnType<typeof fresh>;
+  confirmed: ReturnType<typeof emptyConfirmed>;
+  entryInputs: Record<string, Record<string, string>>;
+  savedAt: number;
+};
+const draftStorageKey = "milanos-cashout-drafts-v1";
+let activeDraftDay = today();
+
+function readDraftProgress(): Record<string, SavedCashoutDraft> {
+  try {
+    const stored = JSON.parse(localStorage.getItem(draftStorageKey) || "null") as { date?: string; drafts?: Record<string, SavedCashoutDraft> } | null;
+    if (!stored || stored.date !== today()) {
+      localStorage.removeItem(draftStorageKey);
+      return {};
+    }
+    return stored.drafts || {};
+  } catch {
+    localStorage.removeItem(draftStorageKey);
+    return {};
+  }
+}
+
+function writeDraftProgress(drafts: Record<string, SavedCashoutDraft>) {
+  try { localStorage.setItem(draftStorageKey, JSON.stringify({ date: today(), drafts })); } catch { /* The cash-out still works if browser storage is unavailable. */ }
+}
+
+function saveDraftProgress() {
+  if (editId || !draft.employeeId || activeDraftDay !== today()) return;
+  const drafts = readDraftProgress();
+  drafts[draft.employeeId] = {
+    role: cashoutRole,
+    draft: structuredClone(draft),
+    confirmed: structuredClone(confirmed),
+    entryInputs: structuredClone(entryInputs),
+    savedAt: Date.now(),
+  };
+  writeDraftProgress(drafts);
+}
+
+function removeDraftProgress(employeeId: string) {
+  const drafts = readDraftProgress();
+  delete drafts[employeeId];
+  writeDraftProgress(drafts);
+}
+
+function restoreDraftProgress(employeeId: string) {
+  const saved = readDraftProgress()[employeeId];
+  const next = saved?.role === cashoutRole ? structuredClone(saved.draft) : fresh();
+  next.employeeId = employeeId;
+  if (cashoutRole === "driver") {
+    const startingCash = cashFlows.reduce((sum, entry) => sum + (entry.date === today() && entry.employeeId === employeeId ? cashFlowNet(entry) : 0), 0);
+    next.startingCash = (startingCash / 100).toFixed(2);
+  }
+  draft = next;
+  confirmed = saved?.role === cashoutRole ? structuredClone(saved.confirmed) : emptyConfirmed();
+  Object.keys(entryInputs).forEach((key) => delete entryInputs[key]);
+  if (saved?.role === cashoutRole) Object.assign(entryInputs, structuredClone(saved.entryInputs || {}));
+  editingListEntry = null;
+  pending = null;
+}
 
 function fresh() {
   customDates = false;
@@ -482,6 +544,9 @@ function render() {
     }
   }
   if (view === "inventory" && admin) root.querySelector("main")?.insertAdjacentHTML("beforeend", inventoryView());
+  if (view === "cashout" && draft.employeeId && !editId) {
+    root.querySelector("#employee")?.parentElement?.insertAdjacentHTML("beforeend", '<p class="draft-saved">✓ Today’s progress is saved automatically on this computer.</p>');
+  }
   const startingCashInput = view === "cashout" && cashoutRole === "driver" ? root.querySelector<HTMLInputElement>('#startingCash') : null;
   if (startingCashInput) {
     startingCashInput.readOnly = true;
@@ -530,7 +595,7 @@ async function run(action: () => Promise<void>) {
   busy = true; message = ""; success = false; render();
   try { await action(); }
   catch (error) { message = error instanceof Error ? error.message : "Something went wrong. Please try again."; }
-  finally { busy = false; render(); }
+  finally { busy = false; saveDraftProgress(); render(); }
 }
 
 async function openProtected(target: ProtectedView) {
@@ -556,16 +621,18 @@ async function afterLogin() {
 
 root.addEventListener("input", (event) => {
   const el = event.target as HTMLInputElement;
-  if (el.dataset.draft) {
+  if (el.dataset.draft && el.dataset.draft !== "employeeId") {
     if (el.dataset.draft === "startDate" || el.dataset.draft === "endDate") customDates = true;
     (draft as unknown as Record<string, unknown>)[el.dataset.draft] = el.value;
     pending = null;
+    saveDraftProgress();
   }
   if (el.hasAttribute("data-reason")) reason = el.value;
   const form = el.closest<HTMLFormElement>("form[data-kind]");
   if (form?.dataset.kind && el.name) {
     entryInputs[form.dataset.kind] ||= {};
     entryInputs[form.dataset.kind][el.name] = el.value;
+    saveDraftProgress();
   }
 });
 
@@ -583,6 +650,13 @@ root.addEventListener("keydown", (event) => {
 
 root.addEventListener("change", (event) => {
   const el = event.target as HTMLInputElement;
+  if (el.dataset.draft === "employeeId" && !editId) {
+    saveDraftProgress();
+    restoreDraftProgress(el.value);
+    saveDraftProgress();
+    render();
+    return;
+  }
   if (el.dataset.draft) {
     if (el.dataset.draft === "startDate" || el.dataset.draft === "endDate") customDates = true;
     (draft as unknown as Record<string, unknown>)[el.dataset.draft] = el.value;
@@ -591,6 +665,7 @@ root.addEventListener("change", (event) => {
       draft.startingCash = (startingCash / 100).toFixed(2);
     }
     pending = null; render();
+    saveDraftProgress();
   }
   if (el.hasAttribute("data-reason")) reason = el.value;
   if (el.id === "filter-employee") filterEmployee = el.value;
@@ -894,6 +969,7 @@ root.addEventListener("click", (event) => {
         }
         break;
       case "cashout-role":
+        saveDraftProgress();
         cashoutRole = button.dataset.role as EmployeeRole;
         draft = fresh();
         editingListEntry = null;
@@ -938,6 +1014,7 @@ root.addEventListener("click", (event) => {
         } else {
           pending ||= { ...s, id: crypto.randomUUID(), createdBy: store.uid(), createdAt: Date.now() };
           await store.save(pending); selected = structuredClone(pending); view = "saved"; pending = null;
+          removeDraftProgress(s.employeeId);
         }
         draft = fresh(); editingListEntry = null; Object.keys(entryInputs).forEach((key) => delete entryInputs[key]); confirmed = emptyConfirmed(); break;
       }
@@ -1008,7 +1085,11 @@ void run(async () => {
 });
 
 setInterval(() => {
-  if (view === "cashout" && !editId && !customDates && !draft.start && !draft.end && draft.startDate === draft.endDate && draft.startDate !== today()) {
-    draft.startDate = today(); draft.endDate = today(); render();
+  if (activeDraftDay !== today()) {
+    activeDraftDay = today();
+    localStorage.removeItem(draftStorageKey);
+    draft = fresh(); confirmed = emptyConfirmed(); editingListEntry = null; pending = null;
+    Object.keys(entryInputs).forEach((key) => delete entryInputs[key]);
+    if (view === "cashout") render();
   }
 }, 60000);

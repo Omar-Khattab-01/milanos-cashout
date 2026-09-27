@@ -543,7 +543,8 @@ function detailView() {
   const itemized = shiftRole(s) === "driver" ? `<h2>Itemized entries</h2>${items("Delivery fees", s.deliveries)}${items("Tips", s.tips)}${items("Tips Online", s.onlineTips)}${cashItems(s)}` : "";
   const shiftDay = localInput(s.start).slice(0, 10);
   const relatedFlows = cashFlows.filter((entry) => entry.employeeId === s.employeeId && entry.date === shiftDay);
-  const flowAudit = shiftRole(s) === "driver" ? `<section class="card"><div class="row"><h2>Driver cash-flow history</h2>${cashFlowBadge(s)}</div><p class="subtle">Cash recorded in Store Cash for ${esc(shiftDay)}. The cash-out saved ${money(s.startingCashCents || 0)} as starting cash.</p>${relatedFlows.length ? relatedFlows.map((entry) => `<div class="flow-audit"><div><strong>${money(entry.amountCents)} taken</strong><span>${time(entry.createdAt)}</span></div>${Object.values(entry.returns || {}).sort((a, b) => a.returnedAt - b.returnedAt).map((item) => `<div class="flow-return"><strong>+ ${money(item.amountCents)} put back</strong><span>${time(item.returnedAt)}</span></div>`).join("")}<div class="flow-balance"><span>Remaining</span><strong>${money(cashFlowNet(entry))}</strong></div></div>`).join("") : '<div class="empty">No Store Cash flow records found for this driver and date.</div>'}</section>` : "";
+  const outstandingFlow = relatedFlows.reduce((sum, entry) => sum + cashFlowNet(entry), 0);
+  const flowAudit = shiftRole(s) === "driver" ? `<section class="card"><div class="row"><h2>Driver cash-flow history</h2><div class="row">${cashFlowBadge(s)}${outstandingFlow > 0 ? `<button class="primary" data-action="admin-return-cash">Mark ${money(outstandingFlow)} returned</button>` : ""}</div></div><p class="subtle">Cash recorded in Store Cash for ${esc(shiftDay)}. The cash-out saved ${money(s.startingCashCents || 0)} as starting cash.</p>${relatedFlows.length ? relatedFlows.map((entry) => `<div class="flow-audit"><div><strong>${money(entry.amountCents)} taken</strong><span>${time(entry.createdAt)}</span></div>${Object.values(entry.returns || {}).sort((a, b) => a.returnedAt - b.returnedAt).map((item) => `<div class="flow-return"><strong>+ ${money(item.amountCents)} put back</strong><span>${time(item.returnedAt)}</span></div>`).join("")}<div class="flow-balance"><span>Remaining</span><strong>${money(cashFlowNet(entry))}</strong></div></div>`).join("") : '<div class="empty">No Store Cash flow records found for this driver and date.</div>'}</section>` : "";
   return `<div class="detail"><button data-action="back-history">← Back to history</button><h1 style="margin-top:20px">Shift record</h1><div class="row"><span class="subtle">${esc(s.employeeName)} · ${roleName(shiftRole(s))} · ${date(s.start)}</span><div class="row"><button data-action="edit">Correct</button><button class="primary" data-action="print">Reprint</button><button data-action="delete-shift">Delete shift</button></div></div><section class="card"><h2>Payment review</h2>${reviewActions}</section>${receipt(selected)}${flowAudit}<section class="card">${itemized}<details><summary>Original record & correction history</summary><p class="subtle">Original submission: ${new Date(selected.createdAt).toLocaleString()}</p>${receipt({ ...selected, corrections: undefined })}${Object.values(selected.corrections || {}).sort((a, b) => b.editedAt - a.editedAt).map((c) => `<details><summary>${new Date(c.editedAt).toLocaleString()} · ${esc(c.reason)}</summary>${receipt({ ...c, id: selected!.id, createdBy: selected!.createdBy, createdAt: selected!.createdAt })}</details>`).join("")}</details></section></div>`;
 }
 
@@ -1099,6 +1100,19 @@ root.addEventListener("click", (event) => {
         message = button.dataset.status === "reviewed" ? "Cash-out marked as paid and reviewed." : "Cash-out marked as partially paid and under review.";
         success = true;
         break;
+      case "admin-return-cash": {
+        if (!selected) return;
+        const s = current(selected), shiftDay = localInput(s.start).slice(0, 10);
+        const openFlows = cashFlows.filter((entry) => entry.employeeId === s.employeeId && entry.date === shiftDay && cashFlowNet(entry) > 0);
+        if (!openFlows.length) throw new Error("This driver has no outstanding cash flow for that date.");
+        const returnedCents = openFlows.reduce((sum, entry) => sum + cashFlowNet(entry), 0);
+        await Promise.all(openFlows.map((entry) => store.returnCashFlow(entry.id, {
+          amountCents: cashFlowNet(entry), returnedAt: Date.now(), returnedBy: store.uid(),
+        })));
+        cashFlows = await store.getCashFlows();
+        message = `${money(returnedCents)} marked as returned to the register.`; success = true;
+        break;
+      }
       case "delete-shift":
         if (!selected || !window.confirm(`Permanently delete ${current(selected).employeeName}’s shift from ${date(current(selected).start)}?`)) return;
         await store.deleteShift(selected.id); records = await store.history(); selected = null; view = "history"; message = "Shift deleted."; success = true; break;

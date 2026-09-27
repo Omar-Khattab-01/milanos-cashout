@@ -429,6 +429,11 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertFails(set(ref(db("stranger"), "cashFlows/stranger-flow"), { ...cashFlow, id: "stranger-flow", createdBy: "stranger" }));
       const returned = { amountCents: 500, returnedAt: Date.now(), returnedBy: "kiosk" };
       await assertSucceeds(set(ref(db("kiosk"), "cashFlows/flow-1/returns/return-1"), returned));
+      await assertSucceeds(set(ref(db("admin"), "cashFlows/flow-1/returns/admin-return"), {
+        amountCents: 1000,
+        returnedAt: Date.now(),
+        returnedBy: "admin",
+      }));
       await assertFails(update(ref(db("kiosk"), "cashFlows/flow-1/returns/return-1"), { amountCents: 1 }));
       await assertFails(remove(ref(db("admin"), "cashFlows/flow-1/returns/return-1")));
       await assertFails(set(ref(db("kiosk"), "cashFlows/flow-1/returns/too-much"), { ...returned, amountCents: 2000 }));

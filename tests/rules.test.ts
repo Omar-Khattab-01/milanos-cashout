@@ -243,7 +243,7 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
         }),
       );
     });
-    it("lets the originating store computer update a saved cash-out during its active shift", async () => {
+    it("lets an authorized store computer recover and update a saved cash-out during its active shift", async () => {
       const activeStart = start + 7 * 3600000;
       const activeEnd = start + 9 * 3600000;
       const activeRecord = { ...record, id: "active-shift", start: activeStart, end: activeEnd };
@@ -264,7 +264,8 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertSucceeds(set(ref(db("kiosk"), "cashouts/active-shift/corrections/employee-update"), activeCorrection));
       await assertSucceeds(set(ref(db("admin"), "devices/other-kiosk"), true));
       await assertFails(set(ref(db("other-kiosk"), "activeCashouts/2026-09-27/alex"), { ...activeLink, createdBy: "other-kiosk" }));
-      await assertFails(set(ref(db("other-kiosk"), "cashouts/active-shift/corrections/other-device"), {
+      await assertSucceeds(get(ref(db("other-kiosk"), "cashouts/active-shift")));
+      await assertSucceeds(set(ref(db("other-kiosk"), "cashouts/active-shift/corrections/other-device"), {
         ...activeCorrection,
         editedBy: "other-kiosk",
       }));

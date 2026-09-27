@@ -1112,10 +1112,6 @@ root.addEventListener("click", (event) => {
           await store.correct(recordId, {
             ...s, reason: "Updated by employee during active shift", editedAt: Date.now(), editedBy: store.uid(),
           });
-          await store.saveActiveCashout({
-            recordId, employeeId: s.employeeId, date: localInput(s.start).slice(0, 10),
-            end: s.end, createdBy: store.uid(), updatedAt: Date.now(),
-          });
           selected = { ...s, id: recordId, createdBy: store.uid(), createdAt: Date.now() };
           markDraftSubmitted(s.employeeId, recordId, s.end);
           message = await offerCashFlowReturn(s) || "Cash-out updated.";

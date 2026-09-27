@@ -395,6 +395,22 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       }));
       await assertFails(remove(ref(db("admin"), "registerCash/2026-09-20")));
 
+      const cashFlow = {
+        id: "flow-1",
+        employeeId: "alex",
+        employeeName: "Alex",
+        date: "2026-09-20",
+        amountCents: 1500,
+        createdAt: Date.now(),
+        createdBy: "kiosk",
+      };
+      await assertSucceeds(set(ref(db("kiosk"), "cashFlows/flow-1"), cashFlow));
+      await assertSucceeds(get(ref(db("kiosk"), "cashFlows")));
+      await assertFails(update(ref(db("kiosk"), "cashFlows/flow-1"), { amountCents: 1 }));
+      await assertFails(remove(ref(db("admin"), "cashFlows/flow-1")));
+      await assertFails(set(ref(db("kiosk"), "cashFlows/cook-flow"), { ...cashFlow, id: "cook-flow", employeeId: "chris", employeeName: "Chris" }));
+      await assertFails(set(ref(db("stranger"), "cashFlows/stranger-flow"), { ...cashFlow, id: "stranger-flow", createdBy: "stranger" }));
+
       const sales = {
         date: "2026-09-20",
         pcSalesCents: 100000,
@@ -409,6 +425,24 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertSucceeds(set(ref(db("admin"), "dailySales/2026-09-20"), sales));
       await assertFails(set(ref(db("admin"), "dailySales/2026-09-20"), { ...sales, pcSalesCents: -1 }));
       await assertSucceeds(remove(ref(db("admin"), "dailySales/2026-09-20")));
+    });
+    it("keeps inventory PIN-protected and validates quantity and percentage targets", async () => {
+      const quantity = {
+        id: "boxes",
+        name: "Pizza boxes",
+        targetType: "quantity",
+        targetValue: 100,
+        currentValue: 40,
+        updatedAt: Date.now(),
+        updatedBy: "admin",
+      };
+      await assertFails(get(ref(db("kiosk"), "inventory")));
+      await assertFails(set(ref(db("kiosk"), "inventory/boxes"), { ...quantity, updatedBy: "kiosk" }));
+      await assertSucceeds(set(ref(db("admin"), "inventory/boxes"), quantity));
+      await assertSucceeds(update(ref(db("admin"), "inventory/boxes"), { currentValue: 75, updatedAt: Date.now() }));
+      await assertFails(set(ref(db("admin"), "inventory/invalid-percentage"), { ...quantity, id: "invalid-percentage", targetType: "percentage", targetValue: 101 }));
+      await assertSucceeds(set(ref(db("admin"), "inventory/cheese"), { ...quantity, id: "cheese", name: "Cheese", targetType: "percentage", targetValue: 80, currentValue: 35 }));
+      await assertSucceeds(remove(ref(db("admin"), "inventory/boxes")));
     });
   },
 );

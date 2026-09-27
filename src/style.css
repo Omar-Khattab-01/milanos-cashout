@@ -712,6 +712,91 @@ a {
 .settings-card button {
   margin-top: 16px;
 }
+.register-overview {
+  margin-bottom: 20px;
+}
+.register-totals {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+.register-totals > div {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: 10px;
+  background: #f2f4f0;
+}
+.register-totals strong {
+  font: 600 22px "Outfit", sans-serif;
+}
+.register-totals .expected {
+  background: #e5efe6;
+}
+.inventory-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.7fr) minmax(0, 1.3fr);
+  gap: 20px;
+  align-items: start;
+}
+.inventory-add {
+  position: sticky;
+  top: 22px;
+}
+.inventory-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.inventory-item {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-top: 4px solid #2f7d4d;
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 4px 18px #172d1b0a;
+}
+.inventory-item.needs-stock {
+  border-top-color: #c78032;
+}
+.inventory-item h3 {
+  margin: 0 0 5px;
+}
+.inventory-status {
+  color: #69756d;
+  font-size: 13px;
+  font-weight: 700;
+}
+.needs-stock .inventory-status {
+  color: #9a5c18;
+}
+.inventory-progress {
+  height: 9px;
+  overflow: hidden;
+  margin: 18px 0;
+  border-radius: 999px;
+  background: #edf0ec;
+}
+.inventory-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #2f7d4d;
+}
+.needs-stock .inventory-progress span {
+  background: #c78032;
+}
+.inventory-update {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 18px;
+}
+.inventory-update button {
+  height: 44px;
+}
 @media (max-width: 800px) {
   .expense-grid {
     grid-template-columns: 1fr;
@@ -721,5 +806,27 @@ a {
   }
   .month-picker {
     width: 100%;
+  }
+  .register-totals,
+  .inventory-layout {
+    grid-template-columns: 1fr 1fr;
+  }
+  .inventory-add {
+    position: static;
+  }
+  .inventory-list {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 600px) {
+  .register-totals,
+  .inventory-layout {
+    grid-template-columns: 1fr;
+  }
+  .inventory-update {
+    grid-template-columns: 1fr 1fr;
+  }
+  .inventory-update button {
+    grid-column: 1 / -1;
   }
 }

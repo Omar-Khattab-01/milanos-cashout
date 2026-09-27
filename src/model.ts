@@ -64,6 +64,25 @@ export type RegisterCash = {
   updatedAt: number;
   updatedBy: string;
 };
+export type CashFlowEntry = {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  date: string;
+  amountCents: number;
+  createdAt: number;
+  createdBy: string;
+};
+export type InventoryTargetType = "quantity" | "percentage";
+export type InventoryItem = {
+  id: string;
+  name: string;
+  targetType: InventoryTargetType;
+  targetValue: number;
+  currentValue: number;
+  updatedAt: number;
+  updatedBy: string;
+};
 export type DailySales = {
   date: string;
   pcSalesCents: number;

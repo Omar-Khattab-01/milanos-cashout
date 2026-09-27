@@ -3,8 +3,8 @@ import * as store from "./store";
 import {
   amountOf, billNumber, billOf, cashCents, cashTotals, cents, current, hours,
   localInput, money, salesCents, storeCashAmount, total, totals, validateShift,
-  type CashDelivery, type Cashout, type CashoutReview, type Company, type Employee,
-  type DailySales, type EmployeeRole, type EntryList, type Expense, type ReviewStatus,
+  type CashDelivery, type CashFlowEntry, type Cashout, type CashoutReview, type Company, type Employee,
+  type DailySales, type EmployeeRole, type EntryList, type Expense, type InventoryItem, type InventoryTargetType, type ReviewStatus,
   type RegisterCash, type Shift, type StoreCashEntry,
 } from "./model";
 
@@ -23,7 +23,7 @@ const time = (value: number) => new Date(value).toLocaleTimeString("en-CA", {
 
 type EntryKind = "deliveries" | "tips" | "onlineTips";
 type ListKind = EntryKind | "cashDeliveries";
-type ProtectedView = "history" | "employees" | "expenses";
+type ProtectedView = "history" | "employees" | "expenses" | "inventory";
 type DeviceView = "cashout" | "store-cash";
 type ExpenseTab = "overview" | "sales" | "suppliers" | "payroll" | "settings";
 
@@ -44,6 +44,8 @@ let companies: Record<string, Company> = {};
 let expenses: Expense[] = [];
 let storeCashEntries: StoreCashEntry[] = [];
 let registerCash: Record<string, RegisterCash> = {};
+let cashFlows: CashFlowEntry[] = [];
+let inventory: Record<string, InventoryItem> = {};
 let editingStoreCashId = "";
 let dailySales: Record<string, DailySales> = {};
 let expenseMonth = today().slice(0, 7);
@@ -111,7 +113,8 @@ function entrySection(kind: EntryKind, title: string, step: number) {
   const list = Object.entries(draft[kind]);
   const supportsFee = kind !== "deliveries";
   const editing = editingListEntry?.kind === kind;
-  return `<section class="card"><div class="row"><div class="section-head" style="margin:0"><span class="step">${step}</span><div><h2>${title}</h2><span class="subtle">${supportsFee ? "Bill number → Space → amount → Space → delivery fee → Enter. Delivery fee is optional." : "Bill number → Space → amount → Enter."}</span></div></div>${confirmed[kind] ? '<span class="pill">Done</span>' : ""}</div>${!confirmed[kind] ? `<form data-form="entry" data-kind="${kind}" class="entry-input ${supportsFee ? "multi-input" : "bill-input"}">${entryField(kind, "billNumber", "Bill number", "e.g. 1042")}${entryField(kind, "amount", "Amount", "0.00", true)}${supportsFee ? entryField(kind, "deliveryFee", "Delivery fee", "0.00", true, false) : ""}<button class="primary" type="submit">${editing ? "Save changes" : "+ Add"}</button></form>` : ""}${list.length ? `<ol class="entry-list">${list.map(([id, entry], i) => { const fee = typeof entry === "number" ? 0 : entry.deliveryFeeCents || 0; return `<li><span class="subtle">${i + 1}. Bill ${esc(billOf(entry))}${supportsFee ? ` · Delivery fee ${money(fee)}` : ""}</span><span>${money(amountOf(entry))} ${!confirmed[kind] ? `<button data-action="edit-list-entry" data-kind="${kind}" data-id="${id}">Edit</button><button data-action="remove" data-kind="${kind}" data-id="${id}">×</button>` : ""}</span></li>`; }).join("")}</ol>` : '<p class="subtle">No entries yet.</p>'}<div class="row entry-footer"><span class="subtle">${list.length} entries · <strong>${money(total(draft[kind]))}</strong></span><button data-action="done" data-kind="${kind}">${confirmed[kind] ? "Edit entries" : "Done"}</button></div></section>`;
+  const amountLabel = kind === "tips" || kind === "onlineTips" ? "Tip amount" : "Amount";
+  return `<section class="card"><div class="row"><div class="section-head" style="margin:0"><span class="step">${step}</span><div><h2>${title}</h2><span class="subtle">${supportsFee ? "Bill number → Space → tip amount → Space → delivery fee → Enter. Delivery fee is optional." : "Bill number → Space → amount → Enter."}</span></div></div>${confirmed[kind] ? '<span class="pill">Done</span>' : ""}</div>${!confirmed[kind] ? `<form data-form="entry" data-kind="${kind}" class="entry-input ${supportsFee ? "multi-input" : "bill-input"}">${entryField(kind, "billNumber", "Bill number", "e.g. 1042")}${entryField(kind, "amount", amountLabel, "0.00", true)}${supportsFee ? entryField(kind, "deliveryFee", "Delivery fee", "0.00", true, false) : ""}<button class="primary" type="submit">${editing ? "Save changes" : "+ Add"}</button></form>` : ""}${list.length ? `<ol class="entry-list">${list.map(([id, entry], i) => { const fee = typeof entry === "number" ? 0 : entry.deliveryFeeCents || 0; return `<li><span class="subtle">${i + 1}. Bill ${esc(billOf(entry))}${supportsFee ? ` · Delivery fee ${money(fee)}` : ""}</span><span>${money(amountOf(entry))} ${!confirmed[kind] ? `<button data-action="edit-list-entry" data-kind="${kind}" data-id="${id}">Edit</button><button data-action="remove" data-kind="${kind}" data-id="${id}">×</button>` : ""}</span></li>`; }).join("")}</ol>` : '<p class="subtle">No entries yet.</p>'}<div class="row entry-footer"><span class="subtle">${list.length} entries · <strong>${money(total(draft[kind]))}</strong></span><button data-action="done" data-kind="${kind}">${confirmed[kind] ? "Edit entries" : "Done"}</button></div></section>`;
 }
 
 function cashSection() {
@@ -138,7 +141,7 @@ function cashout() {
 }
 
 function loginView() {
-  const names: Record<ProtectedView, string> = { history: "Cash-out history", employees: "Employees & pay", expenses: "Monthly expenses" };
+  const names: Record<ProtectedView, string> = { history: "Cash-out history", employees: "Employees & pay", expenses: "Monthly expenses", inventory: "Inventory" };
   return `<section class="card login"><div class="eyebrow">Protected section</div><h1>${names[loginTarget]}</h1><p class="subtle">Enter the admin PIN to open this section.</p>${store.demo ? '<p class="message">Demo admin preview.</p><button class="primary wide" data-action="demo-login">Explore this section</button>' : '<form data-form="login"><label for="pin">Admin PIN</label><input id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="off" placeholder="Enter 4-digit PIN" required autofocus><button class="primary wide" type="submit">Unlock</button></form>'}</section>`;
 }
 
@@ -150,13 +153,16 @@ function storeCashView() {
   const day = today();
   const entries = storeCashEntries.filter((entry) => entry.date === day);
   const totalReceived = entries.reduce((sum, entry) => sum + storeCashAmount(entry), 0);
+  const dayFlows = cashFlows.filter((entry) => entry.date === day);
+  const totalCashFlow = dayFlows.reduce((sum, entry) => sum + entry.amountCents, 0);
   const openingCash = registerCash[day]?.openingCashCents || 0;
-  const expectedCash = openingCash + totalReceived;
+  const expectedCash = openingCash + totalReceived - totalCashFlow;
+  const drivers = Object.entries(roster).filter(([, employee]) => employee.active !== false && employeeRole(employee) === "driver");
   const editing = entries.find((entry) => entry.id === editingStoreCashId);
   const form = editing
     ? `<h2>Correct cash amount</h2><p class="subtle">Bill ${esc(editing.billNumber || "Not recorded")} · The original amount remains in the audit history.</p><form data-form="store-cash-edit" data-id="${editing.id}"><label for="store-cash-edit-amount">Corrected amount received</label><input id="store-cash-edit-amount" name="amount" inputmode="decimal" value="${(storeCashAmount(editing) / 100).toFixed(2)}" autocomplete="off" required autofocus><div class="row" style="margin-top:16px"><button class="primary" type="submit">Save correction</button><button type="button" data-action="cancel-store-cash-edit">Cancel</button></div></form>`
     : `<h2>Add cash order</h2><p class="subtle">Today’s date is added automatically. Saved payments cannot be deleted.</p><form data-form="store-cash"><label for="store-cash-bill">Bill number</label><input id="store-cash-bill" name="billNumber" inputmode="numeric" maxlength="40" placeholder="e.g. 1042" autocomplete="off" required autofocus><label for="store-cash-amount">Amount received</label><input id="store-cash-amount" name="amount" inputmode="decimal" placeholder="0.00" autocomplete="off" required><button class="primary wide" type="submit" style="margin-top:16px">Save cash received</button></form>`;
-  return `<div class="intro"><div><div class="eyebrow">Cashier desk</div><h1>Cash received in store</h1><span class="subtle">Enter the bill number and cash received. No cashier name is required.</span></div><span class="pill">${esc(day)}</span></div><div class="split"><section class="card">${form}</section><section class="card"><h2>Register cash</h2><div class="summary-line"><span>Opening cash in register</span><strong>${money(openingCash)}</strong></div><div class="summary-line"><span>Cash received today</span><strong>${money(totalReceived)}</strong></div><div class="grand"><span>Expected cash in register</span><strong>${money(expectedCash)}</strong></div><p class="subtle">Opening cash is separate from today’s payments and does not count as sales.</p><details><summary>${registerCash[day] ? "Edit opening cash" : "Set opening cash"} (admin)</summary><form data-form="register-cash"><label for="register-opening-cash">Opening cash for today</label><input id="register-opening-cash" name="amount" inputmode="decimal" value="${(openingCash / 100).toFixed(2)}" autocomplete="off" required><label for="register-pin">Admin PIN</label><input id="register-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="off" placeholder="Enter 4-digit PIN" required><button class="primary wide" type="submit">Save opening cash</button></form></details><p class="subtle">${entries.length} ${entries.length === 1 ? "payment" : "payments"} entered today</p></section></div><section class="card table-wrap"><h2>Today’s cash received</h2>${entries.length ? `<table><thead><tr><th>Time</th><th>Bill number</th><th>Amount received</th><th></th></tr></thead><tbody>${entries.map((entry) => `<tr><td>${time(entry.createdAt)}</td><td><strong>${esc(entry.billNumber || "Not recorded")}</strong></td><td>${money(storeCashAmount(entry))}${entry.corrections ? ' <span class="subtle">Corrected</span>' : ""}</td><td><button data-action="edit-store-cash" data-id="${entry.id}">Edit amount</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No in-store cash has been entered today.</div>'}</section>`;
+  return `<div class="intro"><div><div class="eyebrow">Cashier desk</div><h1>Store cash</h1><span class="subtle">Track payments received and cash given to drivers.</span></div><span class="pill">${esc(day)}</span></div><section class="card register-overview"><h2>Register cash</h2><div class="register-totals"><div><span class="subtle">Opening cash in register</span><strong>${money(openingCash)}</strong></div><div><span class="subtle">Cash received today</span><strong>${money(totalReceived)}</strong></div><div><span class="subtle">Cash flow to drivers</span><strong>− ${money(totalCashFlow)}</strong></div><div class="expected"><span>Expected cash in register</span><strong>${money(expectedCash)}</strong></div></div><p class="subtle">Expected cash = opening cash + cash received − cash given to drivers. Opening cash and driver cash flow do not count as sales.</p><details><summary>${registerCash[day] ? "Edit opening cash" : "Set opening cash"} (admin)</summary><form data-form="register-cash"><label for="register-opening-cash">Opening cash for today</label><input id="register-opening-cash" name="amount" inputmode="decimal" value="${(openingCash / 100).toFixed(2)}" autocomplete="off" required><label for="register-pin">Admin PIN</label><input id="register-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="off" placeholder="Enter 4-digit PIN" required><button class="primary wide" type="submit">Save opening cash</button></form></details></section><div class="split"><section class="card">${form}</section><section class="card"><h2>Cash flow to driver</h2><p class="subtle">Record cash taken from the register at the start of a driver’s shift.</p><form data-form="cash-flow"><label for="cash-flow-driver">Driver name</label><select id="cash-flow-driver" name="employeeId" required><option value="">Select driver</option>${drivers.map(([id, employee]) => `<option value="${esc(id)}">${esc(employee.name)}</option>`).join("")}</select><label for="cash-flow-amount">Amount taken</label><input id="cash-flow-amount" name="amount" inputmode="decimal" placeholder="0.00" autocomplete="off" required><button class="primary wide" type="submit">Save driver cash flow</button></form></section></div><div class="split"><section class="card table-wrap"><h2>Today’s cash received</h2>${entries.length ? `<table><thead><tr><th>Time</th><th>Bill number</th><th>Amount received</th><th></th></tr></thead><tbody>${entries.map((entry) => `<tr><td>${time(entry.createdAt)}</td><td><strong>${esc(entry.billNumber || "Not recorded")}</strong></td><td>${money(storeCashAmount(entry))}${entry.corrections ? ' <span class="subtle">Corrected</span>' : ""}</td><td><button data-action="edit-store-cash" data-id="${entry.id}">Edit amount</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No in-store cash has been entered today.</div>'}</section><section class="card table-wrap"><h2>Today’s driver cash flow</h2>${dayFlows.length ? `<table><thead><tr><th>Time</th><th>Driver</th><th>Amount taken</th></tr></thead><tbody>${dayFlows.map((entry) => `<tr><td>${time(entry.createdAt)}</td><td><strong>${esc(entry.employeeName)}</strong></td><td>${money(entry.amountCents)}</td></tr>`).join("")}</tbody></table>` : '<div class="empty">No cash has been given to drivers today.</div>'}</section></div>`;
 }
 
 function reviewState(id: string): "not_reviewed" | ReviewStatus {
@@ -274,6 +280,29 @@ function organizedExpensesView() {
   return `<div class="intro expenses-intro"><div><div class="eyebrow">Management</div><h1>Business finances</h1><span class="subtle">Review sales, operating costs, and the amount left for each month.</span></div><label class="month-picker" for="expense-month"><span>Viewing month</span><input id="expense-month" type="month" value="${expenseMonth}"></label></div><nav class="expense-tabs" aria-label="Expense sections" role="tablist">${tabs}</nav><div class="expense-panel" role="tabpanel">${content[expenseTab]}</div>`;
 }
 
+const inventoryValue = (value: string, type: InventoryTargetType) => {
+  if (!/^\d+(\.\d{1,2})?$/.test(value.trim())) throw new Error("Enter a number with up to two decimal places.");
+  const number = Number(value);
+  const maximum = type === "percentage" ? 100 : 1000000;
+  if (!Number.isFinite(number) || number < 0 || number > maximum) throw new Error(type === "percentage" ? "Enter a percentage from 0 to 100." : "Enter a quantity from 0 to 1,000,000.");
+  return number;
+};
+
+function inventoryView() {
+  const items = Object.values(inventory).sort((a, b) => {
+    const aNeed = Math.max(0, a.targetValue - a.currentValue), bNeed = Math.max(0, b.targetValue - b.currentValue);
+    return bNeed - aNeed || a.name.localeCompare(b.name);
+  });
+  const itemCards = items.map((item) => {
+    const needed = Math.max(0, item.targetValue - item.currentValue);
+    const suffix = item.targetType === "percentage" ? "%" : "";
+    const progress = item.targetValue > 0 ? Math.min(100, Math.round((item.currentValue / item.targetValue) * 100)) : 100;
+    const status = needed > 0 ? (item.targetType === "percentage" ? `${needed.toLocaleString("en-CA", { maximumFractionDigits: 2 })} percentage points below target` : `Need ${needed.toLocaleString("en-CA", { maximumFractionDigits: 2 })}`) : "Target met";
+    return `<article class="inventory-item ${needed > 0 ? "needs-stock" : "stocked"}"><div class="row"><div><h3>${esc(item.name)}</h3><span class="inventory-status">${status}</span></div><button data-action="delete-inventory" data-id="${item.id}">Delete</button></div><div class="inventory-progress" aria-label="${esc(item.name)} stock progress"><span style="width:${progress}%"></span></div><div class="summary-line"><span>Current</span><strong>${item.currentValue.toLocaleString("en-CA", { maximumFractionDigits: 2 })}${suffix}</strong></div><div class="summary-line"><span>Target</span><strong>${item.targetValue.toLocaleString("en-CA", { maximumFractionDigits: 2 })}${suffix}</strong></div><form data-form="inventory-update" data-id="${item.id}" class="inventory-update"><div><label for="inventory-current-${item.id}">Current ${item.targetType}</label><input id="inventory-current-${item.id}" name="currentValue" inputmode="decimal" value="${item.currentValue}" required></div><div><label for="inventory-target-${item.id}">Target ${item.targetType}</label><input id="inventory-target-${item.id}" name="targetValue" inputmode="decimal" value="${item.targetValue}" required></div><button class="primary" type="submit">Update</button></form></article>`;
+  }).join("");
+  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Inventory</h1><span class="subtle">Keep stock levels current and see what is needed while shopping.</span></div><span class="pill">${items.filter((item) => item.currentValue < item.targetValue).length} items needed</span></div><div class="inventory-layout"><section class="card inventory-add"><h2>Add inventory item</h2><form data-form="inventory-add"><label for="inventory-name">Item name</label><input id="inventory-name" name="name" maxlength="100" placeholder="e.g. Pizza boxes" required><label for="inventory-type">Track by</label><select id="inventory-type" name="targetType" required><option value="quantity">Quantity</option><option value="percentage">Percentage</option></select><div class="fields"><div><label for="inventory-target">Target</label><input id="inventory-target" name="targetValue" inputmode="decimal" placeholder="0" required></div><div><label for="inventory-current">Current in store</label><input id="inventory-current" name="currentValue" inputmode="decimal" placeholder="0" required></div></div><button class="primary wide" type="submit">Add inventory item</button></form></section><section><div class="inventory-list">${itemCards || '<div class="card empty">No inventory items yet. Add the first item to start the shopping list.</div>'}</div></section></div>`;
+}
+
 function detailView() {
   if (!selected) return "";
   const s = current(selected);
@@ -292,8 +321,19 @@ function render() {
   root.innerHTML = `<header><div class="brand"><span class="monogram">M</span><div><strong>milano’s</strong><small>PIZZERIA · EMPLOYEE DESK</small></div></div><nav aria-label="Main navigation"><button data-action="cashout-nav" class="${view === "cashout" || view === "device-login" ? "active" : ""}">Cash-out</button><button data-action="protected-nav" data-view="history" class="${view === "history" || view === "detail" ? "active" : ""}">History</button><button data-action="protected-nav" data-view="employees" class="${view === "employees" ? "active" : ""}">Employees</button><button data-action="protected-nav" data-view="expenses" class="${view === "expenses" ? "active" : ""}">Expenses</button></nav></header>${store.demo ? '<div class="notice">Preview mode · Records are temporary and cleared when you reload.</div>' : ""}<main>${message ? `<div role="alert" class="message ${success ? "success" : ""}">${esc(message)}</div>` : ""}${view === "cashout" ? cashout() : view === "device-login" ? deviceLoginView() : view === "login" ? loginView() : view === "history" && admin ? historyView() : view === "employees" && admin ? employeeView() : view === "expenses" && admin ? organizedExpensesView() : view === "detail" && admin ? detailView() : view === "saved" && selected ? `<div class="saved-heading"><span class="pill">${store.demo ? "Demo saved" : "Cash-out saved"}</span><h1>You’re all set.</h1><p class="subtle">The receipt below is for reference. An admin can print it from History.</p></div>${receipt(selected)}<div class="row" style="justify-content:center"><button class="primary" data-action="new">Next employee</button></div>` : ""}</main><footer>Milano’s Pizzeria · Employee cash-outs</footer>`;
   const cashoutNav = root.querySelector<HTMLButtonElement>('button[data-action="cashout-nav"]');
   cashoutNav?.insertAdjacentHTML("afterend", `<button data-action="store-cash-nav" class="${view === "store-cash" || (view === "device-login" && deviceTarget === "store-cash") ? "active" : ""}">Store Cash</button>`);
+  const expensesNav = root.querySelector<HTMLButtonElement>('button[data-view="expenses"]');
+  expensesNav?.insertAdjacentHTML("afterend", `<button data-action="protected-nav" data-view="inventory" class="${view === "inventory" ? "active" : ""}">Inventory</button>`);
   if (view === "device-login" && deviceTarget === "store-cash") cashoutNav?.classList.remove("active");
   if (view === "store-cash") root.querySelector("main")?.insertAdjacentHTML("beforeend", storeCashView());
+  if (view === "inventory" && admin) root.querySelector("main")?.insertAdjacentHTML("beforeend", inventoryView());
+  const startingCashInput = view === "cashout" && cashoutRole === "driver" ? root.querySelector<HTMLInputElement>('#startingCash') : null;
+  if (startingCashInput) {
+    startingCashInput.readOnly = true;
+    const label = root.querySelector<HTMLLabelElement>('label[for="startingCash"]');
+    if (label) label.textContent = "Starting cash from Store Cash";
+    const note = startingCashInput.nextElementSibling;
+    if (note) note.textContent = "This is filled automatically from today’s cash flow recorded in Store Cash.";
+  }
   if (datesOpen) root.querySelector<HTMLDetailsElement>(".date-options")!.open = true;
   if (busy) root.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
 }
@@ -328,6 +368,7 @@ async function afterLogin() {
   try { rates = await store.getRates(); } catch { rates = { driver: 1300, cook: 1300, cashier: 1300 }; }
   if (loginTarget === "history") [records, reviews] = await Promise.all([store.history(), store.getReviews()]);
   if (loginTarget === "expenses") [records, companies, expenses, storeCashEntries, dailySales, monthlyRentCents] = await Promise.all([store.allHistory(), store.getCompanies(), store.getExpenses(), store.getStoreCash(), store.getDailySales(), store.getMonthlyRent()]);
+  if (loginTarget === "inventory") inventory = await store.getInventory();
   view = loginTarget;
 }
 
@@ -363,6 +404,10 @@ root.addEventListener("change", (event) => {
   if (el.dataset.draft) {
     if (el.dataset.draft === "startDate" || el.dataset.draft === "endDate") customDates = true;
     (draft as unknown as Record<string, unknown>)[el.dataset.draft] = el.value;
+    if (el.dataset.draft === "employeeId" && cashoutRole === "driver" && !editId) {
+      const startingCash = cashFlows.reduce((sum, entry) => sum + (entry.date === today() && entry.employeeId === el.value ? entry.amountCents : 0), 0);
+      draft.startingCash = (startingCash / 100).toFixed(2);
+    }
     pending = null; render();
   }
   if (el.hasAttribute("data-reason")) reason = el.value;
@@ -401,7 +446,7 @@ root.addEventListener("submit", (event) => {
         await store.login(String(data.get("pin")));
         await store.authorizeDevice();
         await store.logout();
-        [roster, rates, storeCashEntries, registerCash] = await Promise.all([store.roster(), store.getRates(), store.getStoreCash(), store.getRegisterCash()]);
+        [roster, rates, storeCashEntries, registerCash, cashFlows] = await Promise.all([store.roster(), store.getRates(), store.getStoreCash(), store.getRegisterCash(), store.getCashFlows()]);
         view = deviceTarget;
         message = "This computer is authorized. Employee tools will stay unlocked here.";
         success = true;
@@ -466,6 +511,32 @@ root.addEventListener("submit", (event) => {
         registerCash = await store.getRegisterCash();
         message = `Opening register cash saved: ${money(openingCashCents)}.`; success = true; break;
       }
+      case "cash-flow": {
+        const employeeId = String(data.get("employeeId")), employee = roster[employeeId];
+        if (!employee || employee.active === false || employeeRole(employee) !== "driver") throw new Error("Select an active driver.");
+        const amountCents = salesCents(String(data.get("amount")));
+        if (amountCents <= 0) throw new Error("Enter a cash flow amount greater than zero.");
+        const entry: CashFlowEntry = { id: crypto.randomUUID(), employeeId, employeeName: employee.name, date: today(), amountCents, createdAt: Date.now(), createdBy: store.uid() };
+        await store.saveCashFlow(entry);
+        cashFlows = await store.getCashFlows();
+        message = `${money(amountCents)} cash flow saved for ${employee.name}.`; success = true; break;
+      }
+      case "inventory-add": {
+        const name = String(data.get("name")).trim(), targetType = String(data.get("targetType")) as InventoryTargetType;
+        if (!name) throw new Error("Enter an inventory item name.");
+        if (Object.values(inventory).some((item) => item.name.toLowerCase() === name.toLowerCase())) throw new Error("That inventory item already exists.");
+        if (targetType !== "quantity" && targetType !== "percentage") throw new Error("Select quantity or percentage.");
+        const item: InventoryItem = { id: crypto.randomUUID(), name, targetType, targetValue: inventoryValue(String(data.get("targetValue")), targetType), currentValue: inventoryValue(String(data.get("currentValue")), targetType), updatedAt: Date.now(), updatedBy: store.uid() };
+        await store.saveInventoryItem(item); inventory = await store.getInventory();
+        message = `${name} added to inventory.`; success = true; break;
+      }
+      case "inventory-update": {
+        const id = form.dataset.id!, existing = inventory[id];
+        if (!existing) throw new Error("That inventory item could not be found.");
+        const item: InventoryItem = { ...existing, targetValue: inventoryValue(String(data.get("targetValue")), existing.targetType), currentValue: inventoryValue(String(data.get("currentValue")), existing.targetType), updatedAt: Date.now(), updatedBy: store.uid() };
+        await store.saveInventoryItem(item); inventory = await store.getInventory();
+        message = `${item.name} inventory updated.`; success = true; break;
+      }
       case "daily-sales": {
         const salesDate = String(data.get("date"));
         if (!/^\d{4}-\d{2}-\d{2}$/.test(salesDate)) throw new Error("Enter the sales date.");
@@ -512,7 +583,7 @@ root.addEventListener("click", (event) => {
         if (admin) await store.logout();
         admin = false; deviceTarget = "cashout"; editingStoreCashId = ""; editId = ""; selected = null; view = "cashout";
         try {
-          [roster, rates] = await Promise.all([store.roster(), store.getRates()]);
+          [roster, rates, cashFlows] = await Promise.all([store.roster(), store.getRates(), store.getCashFlows()]);
         } catch {
           view = "device-login";
         }
@@ -521,7 +592,7 @@ root.addEventListener("click", (event) => {
         if (admin) await store.logout();
         admin = false; deviceTarget = "store-cash"; editingStoreCashId = ""; editId = ""; selected = null; view = "store-cash";
         try {
-          [storeCashEntries, registerCash] = await Promise.all([store.getStoreCash(), store.getRegisterCash()]);
+          [roster, storeCashEntries, registerCash, cashFlows] = await Promise.all([store.roster(), store.getStoreCash(), store.getRegisterCash(), store.getCashFlows()]);
         } catch {
           view = "device-login";
         }
@@ -602,6 +673,11 @@ root.addEventListener("click", (event) => {
       case "delete-daily-sales":
         if (!window.confirm(`Delete daily sales for ${button.dataset.date}?`)) return;
         await store.deleteDailySales(button.dataset.date!); dailySales = await store.getDailySales(); message = "Daily sales deleted."; success = true; break;
+      case "delete-inventory": {
+        const item = inventory[button.dataset.id!];
+        if (!item || !window.confirm(`Delete ${item.name} from inventory?`)) return;
+        await store.deleteInventoryItem(item.id); inventory = await store.getInventory(); message = "Inventory item deleted."; success = true; break;
+      }
       case "edit-store-cash": editingStoreCashId = button.dataset.id!; break;
       case "cancel-store-cash-edit": editingStoreCashId = ""; break;
       case "edit": {
@@ -622,7 +698,7 @@ root.innerHTML = "<main><h1>Milano’s driver desk</h1><p>Loading…</p></main>"
 void run(async () => {
   await store.init(); admin = false;
   try {
-    [roster, rates] = await Promise.all([store.roster(), store.getRates()]);
+    [roster, rates, cashFlows] = await Promise.all([store.roster(), store.getRates(), store.getCashFlows()]);
   } catch {
     view = "device-login";
   }

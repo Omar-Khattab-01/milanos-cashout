@@ -22,12 +22,14 @@ import {
 import type {
   Cashout,
   CashoutReview,
+  CashFlowEntry,
   Company,
   Correction,
   DailySales,
   Employee,
   EmployeeRole,
   Expense,
+  InventoryItem,
   RegisterCash,
   ReviewStatus,
   StoreCashCorrection,
@@ -69,6 +71,8 @@ const expenseRecords: Record<string, Expense> = {};
 const reviewRecords: Record<string, CashoutReview> = {};
 const storeCashRecords: Record<string, StoreCashEntry> = {};
 const registerCashRecords: Record<string, RegisterCash> = {};
+const cashFlowRecords: Record<string, CashFlowEntry> = {};
+const inventoryRecords: Record<string, InventoryItem> = {};
 const dailySalesRecords: Record<string, DailySales> = {};
 export const uid = () =>
   auth?.currentUser?.uid || kioskAuth?.currentUser?.uid || "demo-driver";
@@ -319,6 +323,29 @@ export async function getRegisterCash(): Promise<Record<string, RegisterCash>> {
 export async function saveRegisterCash(record: RegisterCash) {
   if (db) await set(ref(db, `registerCash/${record.date}`), record);
   else registerCashRecords[record.date] = structuredClone(record);
+}
+export async function getCashFlows(): Promise<CashFlowEntry[]> {
+  const value = db
+    ? (await get(ref(db, "cashFlows"))).val() || {}
+    : cashFlowRecords;
+  return (Object.values(value) as CashFlowEntry[]).sort((a, b) => b.createdAt - a.createdAt);
+}
+export async function saveCashFlow(record: CashFlowEntry) {
+  if (db) await set(ref(db, `cashFlows/${record.id}`), record);
+  else cashFlowRecords[record.id] = structuredClone(record);
+}
+export async function getInventory(): Promise<Record<string, InventoryItem>> {
+  return db
+    ? (await get(ref(db, "inventory"))).val() || {}
+    : structuredClone(inventoryRecords);
+}
+export async function saveInventoryItem(item: InventoryItem) {
+  if (db) await set(ref(db, `inventory/${item.id}`), item);
+  else inventoryRecords[item.id] = structuredClone(item);
+}
+export async function deleteInventoryItem(id: string) {
+  if (db) await remove(ref(db, `inventory/${id}`));
+  else delete inventoryRecords[id];
 }
 export async function getDailySales(): Promise<Record<string, DailySales>> {
   return db

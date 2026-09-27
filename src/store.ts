@@ -32,6 +32,7 @@ import type {
   EmployeeRole,
   Expense,
   InventoryItem,
+  InventoryTag,
   OpeningHours,
   PublishedSchedule,
   RegisterCash,
@@ -78,6 +79,7 @@ const storeCashRecords: Record<string, StoreCashEntry> = {};
 const registerCashRecords: Record<string, RegisterCash> = {};
 const cashFlowRecords: Record<string, CashFlowEntry> = {};
 const inventoryRecords: Record<string, InventoryItem> = {};
+const inventoryTagRecords: Record<string, InventoryTag> = {};
 const dailySalesRecords: Record<string, DailySales> = {};
 let openingHoursRecord: OpeningHours = {};
 const scheduleRecords: Record<string, Record<string, ScheduledShift>> = {};
@@ -405,6 +407,15 @@ export async function getInventory(): Promise<Record<string, InventoryItem>> {
   return db
     ? (await get(ref(db, "inventory"))).val() || {}
     : structuredClone(inventoryRecords);
+}
+export async function getInventoryTags(): Promise<Record<string, InventoryTag>> {
+  return db
+    ? (await get(ref(db, "inventoryTags"))).val() || {}
+    : structuredClone(inventoryTagRecords);
+}
+export async function saveInventoryTag(tag: InventoryTag) {
+  if (db) await set(ref(db, `inventoryTags/${tag.id}`), tag);
+  else inventoryTagRecords[tag.id] = structuredClone(tag);
 }
 export async function saveInventoryItem(item: InventoryItem) {
   if (db) await set(ref(db, `inventory/${item.id}`), item);

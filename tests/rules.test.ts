@@ -492,6 +492,7 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertSucceeds(remove(ref(db("admin"), "schedules/2026-09-28/shift-1")));
     });
     it("keeps inventory PIN-protected and validates quantity and percentage targets", async () => {
+      const tag = { id: "packaging", name: "Packaging", createdAt: Date.now(), createdBy: "admin" };
       const quantity = {
         id: "boxes",
         name: "Pizza boxes",
@@ -502,8 +503,13 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
         updatedBy: "admin",
       };
       await assertFails(get(ref(db("kiosk"), "inventory")));
+      await assertFails(get(ref(db("kiosk"), "inventoryTags")));
+      await assertFails(set(ref(db("kiosk"), "inventoryTags/packaging"), { ...tag, createdBy: "kiosk" }));
+      await assertSucceeds(set(ref(db("admin"), "inventoryTags/packaging"), tag));
+      await assertSucceeds(get(ref(db("admin"), "inventoryTags")));
       await assertFails(set(ref(db("kiosk"), "inventory/boxes"), { ...quantity, updatedBy: "kiosk" }));
-      await assertSucceeds(set(ref(db("admin"), "inventory/boxes"), quantity));
+      await assertSucceeds(set(ref(db("admin"), "inventory/boxes"), { ...quantity, tagId: "packaging" }));
+      await assertFails(set(ref(db("admin"), "inventory/missing-tag"), { ...quantity, id: "missing-tag", tagId: "missing" }));
       await assertSucceeds(update(ref(db("admin"), "inventory/boxes"), { currentValue: 75, updatedAt: Date.now() }));
       await assertFails(set(ref(db("admin"), "inventory/invalid-percentage"), { ...quantity, id: "invalid-percentage", targetType: "percentage", targetValue: 101 }));
       await assertSucceeds(set(ref(db("admin"), "inventory/cheese"), { ...quantity, id: "cheese", name: "Cheese", targetType: "percentage", targetValue: 80, currentValue: 35 }));

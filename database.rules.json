@@ -196,6 +196,18 @@
         "$other": { ".validate": false }
       }
     },
+    "inventoryTags": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).val() === true",
+      "$id": {
+        ".write": "auth != null && root.child('admins').child(auth.uid).val() === true",
+        ".validate": "newData.hasChildren(['id','name','createdAt','createdBy'])",
+        "id": { ".validate": "newData.val() === $id" },
+        "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 60" },
+        "createdAt": { ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= now - 300000 && newData.val() <= now + 60000" },
+        "createdBy": { ".validate": "newData.val() === auth.uid" },
+        "$other": { ".validate": false }
+      }
+    },
     "inventory": {
       ".read": "auth != null && root.child('admins').child(auth.uid).val() === true",
       "$id": {
@@ -206,6 +218,7 @@
         "targetType": { ".validate": "newData.val() === 'quantity' || newData.val() === 'percentage'" },
         "targetValue": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= (newData.parent().child('targetType').val() === 'percentage' ? 100 : 1000000)" },
         "currentValue": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= (newData.parent().child('targetType').val() === 'percentage' ? 100 : 1000000)" },
+        "tagId": { ".validate": "newData.isString() && root.child('inventoryTags').child(newData.val()).exists()" },
         "updatedAt": { ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= now - 300000 && newData.val() <= now + 60000" },
         "updatedBy": { ".validate": "newData.val() === auth.uid" },
         "$other": { ".validate": false }

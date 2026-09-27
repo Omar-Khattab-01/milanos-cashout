@@ -100,12 +100,19 @@ export type PublishedSchedule = {
   publishedBy: string;
 };
 export type InventoryTargetType = "quantity" | "percentage";
+export type InventoryTag = {
+  id: string;
+  name: string;
+  createdAt: number;
+  createdBy: string;
+};
 export type InventoryItem = {
   id: string;
   name: string;
   targetType: InventoryTargetType;
   targetValue: number;
   currentValue: number;
+  tagId?: string;
   updatedAt: number;
   updatedBy: string;
 };

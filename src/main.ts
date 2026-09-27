@@ -4,7 +4,7 @@ import {
   amountOf, billNumber, billOf, cashCents, cashFlowNet, cashFlowReturned, cashTotals, cents, current, hours,
   localInput, money, salesCents, storeCashAmount, total, totals, validateShift,
   type CashDelivery, type CashFlowEntry, type Cashout, type CashoutReview, type Company, type Employee,
-  type DailySales, type EmployeeRole, type EntryList, type Expense, type InventoryItem, type InventoryTargetType, type OpeningHours, type ReviewStatus,
+  type DailySales, type EmployeeRole, type EntryList, type Expense, type InventoryItem, type InventoryTag, type InventoryTargetType, type OpeningHours, type ReviewStatus,
   type PublishedSchedule, type RegisterCash, type ScheduledShift, type Shift, type StoreCashEntry,
 } from "./model";
 
@@ -46,6 +46,9 @@ let storeCashEntries: StoreCashEntry[] = [];
 let registerCash: Record<string, RegisterCash> = {};
 let cashFlows: CashFlowEntry[] = [];
 let inventory: Record<string, InventoryItem> = {};
+let inventoryTags: Record<string, InventoryTag> = {};
+let inventoryTab: "items" | "shopping" = "items";
+let inventoryTagFilter = "all";
 let editingInventoryId = "";
 let editingStoreCashId = "";
 let returningCashFlowId = "";
@@ -477,11 +480,14 @@ const inventoryValue = (value: string, type: InventoryTargetType) => {
 };
 
 function inventoryView() {
-  const items = Object.values(inventory).sort((a, b) => {
-    const aNeed = Math.max(0, a.targetValue - a.currentValue), bNeed = Math.max(0, b.targetValue - b.currentValue);
-    return bNeed - aNeed || a.name.localeCompare(b.name);
+  const tags = Object.values(inventoryTags).sort((a, b) => a.name.localeCompare(b.name));
+  const allItems = Object.values(inventory).sort((a, b) => {
+    const tagA = inventoryTags[a.tagId || ""]?.name || "Uncategorized", tagB = inventoryTags[b.tagId || ""]?.name || "Uncategorized";
+    return tagA.localeCompare(tagB) || a.name.localeCompare(b.name);
   });
-  const itemCards = items.map((item) => {
+  const neededItems = allItems.filter((item) => item.currentValue < item.targetValue);
+  const tagOptions = (selected = "") => `<option value="">Uncategorized</option>${tags.map((tag) => `<option value="${esc(tag.id)}" ${selected === tag.id ? "selected" : ""}>${esc(tag.name)}</option>`).join("")}`;
+  const itemCard = (item: InventoryItem) => {
     const needed = Math.max(0, item.targetValue - item.currentValue);
     const excess = Math.max(0, item.currentValue - item.targetValue);
     const suffix = item.targetType === "percentage" ? "%" : "";
@@ -489,10 +495,22 @@ function inventoryView() {
     const format = (value: number) => value.toLocaleString("en-CA", { maximumFractionDigits: 2 });
     const status = needed > 0 ? `Need ${format(needed)}${suffix}` : excess > 0 ? `Excess ${format(excess)}${suffix}` : "Target met";
     const statusClass = needed > 0 ? "needs-stock" : excess > 0 ? "excess-stock" : "stocked";
-    const editor = editingInventoryId === item.id ? `<div class="inventory-editor"><form data-form="inventory-update" data-id="${item.id}" class="inventory-update"><div><label for="inventory-current-${item.id}">Current ${item.targetType}</label><input id="inventory-current-${item.id}" name="currentValue" inputmode="decimal" value="${item.currentValue}" required autofocus></div><div><label for="inventory-target-${item.id}">Target ${item.targetType}</label><input id="inventory-target-${item.id}" name="targetValue" inputmode="decimal" value="${item.targetValue}" required></div><button class="primary" type="submit">Save changes</button></form><div class="row inventory-editor-actions"><button data-action="cancel-inventory-edit">Close</button><button data-action="delete-inventory" data-id="${item.id}">Delete item</button></div></div>` : "";
-    return `<article class="inventory-item ${statusClass}"><div class="inventory-shopping-row"><button class="inventory-item-open" data-action="edit-inventory" data-id="${item.id}" aria-expanded="${editingInventoryId === item.id}"><span><strong>${esc(item.name)}</strong><small>${status}</small></span><span class="inventory-count"><strong>${format(item.currentValue)}${suffix}</strong><small>Target ${format(item.targetValue)}${suffix}</small></span></button><button class="inventory-reset" data-action="reset-inventory" data-id="${item.id}">Reset to target</button></div><div class="inventory-progress" aria-label="${esc(item.name)} stock progress"><span style="width:${progress}%"></span></div>${editor}</article>`;
+    const tagName = inventoryTags[item.tagId || ""]?.name || "Uncategorized";
+    const editor = editingInventoryId === item.id ? `<div class="inventory-editor"><form data-form="inventory-update" data-id="${item.id}" class="inventory-update"><div><label for="inventory-current-${item.id}">Current ${item.targetType}</label><input id="inventory-current-${item.id}" name="currentValue" inputmode="decimal" value="${item.currentValue}" required autofocus></div><div><label for="inventory-target-${item.id}">Target ${item.targetType}</label><input id="inventory-target-${item.id}" name="targetValue" inputmode="decimal" value="${item.targetValue}" required></div><div><label for="inventory-tag-${item.id}">Tag</label><select id="inventory-tag-${item.id}" name="tagId">${tagOptions(item.tagId)}</select></div><button class="primary" type="submit">Save changes</button></form><div class="row inventory-editor-actions"><button data-action="cancel-inventory-edit">Close</button><button data-action="delete-inventory" data-id="${item.id}">Delete item</button></div></div>` : "";
+    return `<article class="inventory-item ${statusClass}"><div class="inventory-shopping-row"><button class="inventory-item-open" data-action="edit-inventory" data-id="${item.id}" aria-expanded="${editingInventoryId === item.id}"><span><span class="inventory-tag-label">${esc(tagName)}</span><strong>${esc(item.name)}</strong><small>${status}</small></span><span class="inventory-count"><strong>${format(item.currentValue)}${suffix}</strong><small>Target ${format(item.targetValue)}${suffix}</small></span></button><button class="inventory-reset" data-action="reset-inventory" data-id="${item.id}">Reset to target</button></div><div class="inventory-progress" aria-label="${esc(item.name)} stock progress"><span style="width:${progress}%"></span></div>${editor}</article>`;
+  };
+  const visibleItems = inventoryTagFilter === "all" ? allItems : allItems.filter((item) => (item.tagId || "uncategorized") === inventoryTagFilter);
+  const groupIds = inventoryTagFilter === "all" ? [...tags.map((tag) => tag.id), "uncategorized"] : [inventoryTagFilter];
+  const groups = groupIds.map((tagId) => {
+    const groupItems = visibleItems.filter((item) => (item.tagId || "uncategorized") === tagId);
+    if (!groupItems.length) return "";
+    const label = tagId === "uncategorized" ? "Uncategorized" : inventoryTags[tagId]?.name || "Uncategorized";
+    return `<section class="inventory-group"><div class="inventory-group-title"><h2>${esc(label)}</h2><span>${groupItems.length} item${groupItems.length === 1 ? "" : "s"}</span></div><div class="inventory-list">${groupItems.map(itemCard).join("")}</div></section>`;
   }).join("");
-  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Inventory</h1><span class="subtle">Keep stock levels current and see what is needed while shopping.</span></div><span class="pill">${items.filter((item) => item.currentValue < item.targetValue).length} items needed</span></div><div class="inventory-layout"><section class="card inventory-add"><h2>Add inventory item</h2><form data-form="inventory-add"><label for="inventory-name">Item name</label><input id="inventory-name" name="name" maxlength="100" placeholder="e.g. Pizza boxes" required><label for="inventory-type">Track by</label><select id="inventory-type" name="targetType" required><option value="quantity">Quantity</option><option value="percentage">Percentage</option></select><div class="fields"><div><label for="inventory-target">Target</label><input id="inventory-target" name="targetValue" inputmode="decimal" placeholder="0" required></div><div><label for="inventory-current">Current in store</label><input id="inventory-current" name="currentValue" inputmode="decimal" placeholder="0" required></div></div><button class="primary wide" type="submit">Add inventory item</button></form></section><section><div class="inventory-list">${itemCards || '<div class="card empty">No inventory items yet. Add the first item to start the shopping list.</div>'}</div></section></div>`;
+  const tagButtons = `<button data-action="inventory-filter" data-id="all" class="${inventoryTagFilter === "all" ? "active" : ""}">All <span>${allItems.length}</span></button>${tags.map((tag) => `<button data-action="inventory-filter" data-id="${tag.id}" class="${inventoryTagFilter === tag.id ? "active" : ""}">${esc(tag.name)} <span>${allItems.filter((item) => item.tagId === tag.id).length}</span></button>`).join("")}<button data-action="inventory-filter" data-id="uncategorized" class="${inventoryTagFilter === "uncategorized" ? "active" : ""}">Uncategorized <span>${allItems.filter((item) => !item.tagId).length}</span></button>`;
+  const management = `<div class="inventory-layout"><aside class="inventory-sidebar"><section class="card inventory-add"><h2>Add inventory item</h2><form data-form="inventory-add"><label for="inventory-name">Item name</label><input id="inventory-name" name="name" maxlength="100" placeholder="e.g. Pizza boxes" required><label for="inventory-tag">Tag</label><select id="inventory-tag" name="tagId">${tagOptions()}</select><label for="inventory-type">Track by</label><select id="inventory-type" name="targetType" required><option value="quantity">Quantity</option><option value="percentage">Percentage</option></select><div class="fields"><div><label for="inventory-target">Target</label><input id="inventory-target" name="targetValue" inputmode="decimal" placeholder="0" required></div><div><label for="inventory-current">Current in store</label><input id="inventory-current" name="currentValue" inputmode="decimal" placeholder="0" required></div></div><button class="primary wide" type="submit">Add inventory item</button></form></section><section class="card inventory-tags"><h2>Create a tag</h2><p class="subtle">Examples: Produce, Dairy, Packaging, Cleaning.</p><form data-form="inventory-tag"><div class="entry-input"><input name="name" maxlength="60" placeholder="Tag name" required><button class="primary" type="submit">Add</button></div></form></section></aside><section><nav class="inventory-tag-nav" aria-label="Inventory tags">${tagButtons}</nav>${groups || '<div class="card empty">No inventory items in this tag.</div>'}</section></div>`;
+  const shopping = `<section class="shopping-panel"><div class="shopping-list-head"><div><div class="eyebrow">Shopping list</div><h2>${neededItems.length ? `${neededItems.length} item${neededItems.length === 1 ? "" : "s"} to buy` : "Everything is stocked"}</h2></div><span class="pill">Current → target</span></div>${neededItems.length ? `<ul class="shopping-list">${neededItems.map((item) => { const suffix = item.targetType === "percentage" ? "%" : ""; const needed = item.targetValue - item.currentValue; return `<li><span class="shopping-check" aria-hidden="true"></span><span><strong>${esc(item.name)}</strong><small>${esc(inventoryTags[item.tagId || ""]?.name || "Uncategorized")}</small></span><span class="shopping-needed">Buy ${needed.toLocaleString("en-CA", { maximumFractionDigits: 2 })}${suffix}<small>${item.currentValue}${suffix} → ${item.targetValue}${suffix}</small></span><button data-action="reset-inventory" data-id="${item.id}">Mark stocked</button></li>`; }).join("")}</ul>` : '<div class="empty shopping-empty">No items are below target.</div>'}</section>`;
+  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Inventory</h1><span class="subtle">Organize stock by tag and shop from one clear list.</span></div><span class="pill">${neededItems.length} items needed</span></div><div class="toolbar inventory-tabs"><button data-action="inventory-tab" data-tab="items" class="${inventoryTab === "items" ? "active" : ""}">Inventory</button><button data-action="inventory-tab" data-tab="shopping" class="${inventoryTab === "shopping" ? "active" : ""}">Shopping list <span>${neededItems.length}</span></button></div>${inventoryTab === "items" ? management : shopping}`;
 }
 
 const shortScheduleDate = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString("en-CA", { month: "short", day: "numeric" });
@@ -702,7 +720,7 @@ async function afterLogin() {
   try { rates = await store.getRates(); } catch { rates = { driver: 1300, cook: 1300, cashier: 1300 }; }
   if (loginTarget === "history") [records, reviews, cashFlows] = await Promise.all([store.history(), store.getReviews(), store.getCashFlows()]);
   if (loginTarget === "expenses") [records, companies, expenses, storeCashEntries, dailySales, monthlyRentCents] = await Promise.all([store.allHistory(), store.getCompanies(), store.getExpenses(), store.getStoreCash(), store.getDailySales(), store.getMonthlyRent()]);
-  if (loginTarget === "inventory") inventory = await store.getInventory();
+  if (loginTarget === "inventory") [inventory, inventoryTags] = await Promise.all([store.getInventory(), store.getInventoryTags()]);
   if (loginTarget === "schedule") {
     const [savedHours, savedSchedule, published] = await Promise.all([store.getOpeningHours(), store.getSchedule(scheduleWeek), store.getPublishedSchedule(scheduleWeek)]);
     openingHours = { ...openingHours, ...savedHours };
@@ -920,17 +938,31 @@ root.addEventListener("submit", (event) => {
       }
       case "inventory-add": {
         const name = String(data.get("name")).trim(), targetType = String(data.get("targetType")) as InventoryTargetType;
+        const tagId = String(data.get("tagId") || "");
         if (!name) throw new Error("Enter an inventory item name.");
         if (Object.values(inventory).some((item) => item.name.toLowerCase() === name.toLowerCase())) throw new Error("That inventory item already exists.");
         if (targetType !== "quantity" && targetType !== "percentage") throw new Error("Select quantity or percentage.");
-        const item: InventoryItem = { id: crypto.randomUUID(), name, targetType, targetValue: inventoryValue(String(data.get("targetValue")), targetType), currentValue: inventoryValue(String(data.get("currentValue")), targetType), updatedAt: Date.now(), updatedBy: store.uid() };
+        if (tagId && !inventoryTags[tagId]) throw new Error("Select a valid inventory tag.");
+        const item: InventoryItem = { id: crypto.randomUUID(), name, targetType, targetValue: inventoryValue(String(data.get("targetValue")), targetType), currentValue: inventoryValue(String(data.get("currentValue")), targetType), ...(tagId ? { tagId } : {}), updatedAt: Date.now(), updatedBy: store.uid() };
         await store.saveInventoryItem(item); inventory = await store.getInventory();
         message = `${name} added to inventory.`; success = true; break;
+      }
+      case "inventory-tag": {
+        const name = String(data.get("name")).trim();
+        if (!name) throw new Error("Enter a tag name.");
+        if (Object.values(inventoryTags).some((tag) => tag.name.toLowerCase() === name.toLowerCase())) throw new Error("That inventory tag already exists.");
+        const tag: InventoryTag = { id: crypto.randomUUID(), name, createdAt: Date.now(), createdBy: store.uid() };
+        await store.saveInventoryTag(tag); inventoryTags = await store.getInventoryTags();
+        inventoryTagFilter = tag.id;
+        message = `${name} tag created.`; success = true; break;
       }
       case "inventory-update": {
         const id = form.dataset.id!, existing = inventory[id];
         if (!existing) throw new Error("That inventory item could not be found.");
+        const tagId = String(data.get("tagId") || "");
+        if (tagId && !inventoryTags[tagId]) throw new Error("Select a valid inventory tag.");
         const item: InventoryItem = { ...existing, targetValue: inventoryValue(String(data.get("targetValue")), existing.targetType), currentValue: inventoryValue(String(data.get("currentValue")), existing.targetType), updatedAt: Date.now(), updatedBy: store.uid() };
+        if (tagId) item.tagId = tagId; else delete item.tagId;
         await store.saveInventoryItem(item); inventory = await store.getInventory(); editingInventoryId = "";
         message = `${item.name} inventory updated.`; success = true; break;
       }
@@ -975,6 +1007,8 @@ root.addEventListener("click", (event) => {
   void run(async () => {
     switch (button.dataset.action) {
       case "expense-tab": expenseTab = button.dataset.tab as ExpenseTab; break;
+      case "inventory-tab": inventoryTab = button.dataset.tab as "items" | "shopping"; editingInventoryId = ""; break;
+      case "inventory-filter": inventoryTagFilter = button.dataset.id || "all"; editingInventoryId = ""; break;
       case "edit-inventory": editingInventoryId = editingInventoryId === button.dataset.id ? "" : button.dataset.id!; break;
       case "cancel-inventory-edit": editingInventoryId = ""; break;
       case "reset-inventory": {

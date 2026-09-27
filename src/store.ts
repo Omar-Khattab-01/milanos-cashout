@@ -82,7 +82,7 @@ const dailySalesRecords: Record<string, DailySales> = {};
 let openingHoursRecord: OpeningHours = {};
 const scheduleRecords: Record<string, Record<string, ScheduledShift>> = {};
 const publishedScheduleRecords: Record<string, PublishedSchedule> = {};
-const activeCashoutRecords: Record<string, Record<string, ActiveCashoutLink>> = {};
+const activeCashoutRecords: Record<string, ActiveCashoutLink> = {};
 export const uid = () =>
   auth?.currentUser?.uid || kioskAuth?.currentUser?.uid || "demo-driver";
 export async function init() {
@@ -225,17 +225,20 @@ export async function getCashout(id: string): Promise<Cashout | null> {
   catch { return null; }
 }
 export async function saveActiveCashout(link: ActiveCashoutLink) {
-  if (db) await set(ref(db, `activeCashouts/${link.date}/${link.employeeId}`), link);
-  else {
-    activeCashoutRecords[link.date] ||= {};
-    activeCashoutRecords[link.date][link.employeeId] = structuredClone(link);
-  }
+  if (db) await set(ref(db, `activeCashouts/${link.employeeId}`), link);
+  else activeCashoutRecords[link.employeeId] = structuredClone(link);
 }
-export async function getActiveCashout(date: string, employeeId: string): Promise<Cashout | null> {
+export async function getActiveCashout(employeeId: string): Promise<Cashout | null> {
   const link = db
-    ? (await get(ref(db, `activeCashouts/${date}/${employeeId}`))).val() as ActiveCashoutLink | null
-    : activeCashoutRecords[date]?.[employeeId] || null;
+    ? (await get(ref(db, `activeCashouts/${employeeId}`))).val() as ActiveCashoutLink | null
+    : activeCashoutRecords[employeeId] || null;
   return link ? getCashout(link.recordId) : null;
+}
+export async function closeActiveCashout(employeeId: string, recordId: string) {
+  if (db) {
+    const link = (await get(ref(db, `activeCashouts/${employeeId}`))).val() as ActiveCashoutLink | null;
+    if (link?.recordId === recordId) await remove(ref(db, `activeCashouts/${employeeId}`));
+  } else if (activeCashoutRecords[employeeId]?.recordId === recordId) delete activeCashoutRecords[employeeId];
 }
 export async function history(): Promise<Cashout[]> {
   const value = db
@@ -268,19 +271,19 @@ export async function correct(id: string, correction: Correction) {
     records[id].corrections![key] = structuredClone(correction);
   }
 }
-export async function deleteShift(id: string, employeeId: string, date: string) {
+export async function deleteShift(id: string, employeeId: string) {
   if (db) {
-    const link = (await get(ref(db, `activeCashouts/${date}/${employeeId}`))).val() as ActiveCashoutLink | null;
+    const link = (await get(ref(db, `activeCashouts/${employeeId}`))).val() as ActiveCashoutLink | null;
     const updates: Record<string, null> = {
       [`cashouts/${id}`]: null,
       [`cashoutReviews/${id}`]: null,
     };
-    if (link?.recordId === id) updates[`activeCashouts/${date}/${employeeId}`] = null;
+    if (link?.recordId === id) updates[`activeCashouts/${employeeId}`] = null;
     await update(ref(db), updates);
   } else {
     delete records[id];
     delete reviewRecords[id];
-    if (activeCashoutRecords[date]?.[employeeId]?.recordId === id) delete activeCashoutRecords[date][employeeId];
+    if (activeCashoutRecords[employeeId]?.recordId === id) delete activeCashoutRecords[employeeId];
   }
 }
 export async function getReviews(): Promise<Record<string, CashoutReview>> {

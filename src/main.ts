@@ -154,12 +154,9 @@ function removeSubmittedDraft(employeeId: string, recordId: string) {
 async function restoreDraftProgress(employeeId: string) {
   const drafts = readDraftProgress();
   let saved: SavedCashoutDraft | undefined = drafts[employeeId];
-  if (saved?.submittedId && (!saved.submittedEnd || Date.now() < new Date(`${saved.draft.startDate}T${saved.draft.start}`).getTime() || Date.now() > saved.submittedEnd)) {
-    delete drafts[employeeId]; writeDraftProgress(drafts); saved = undefined;
-  }
   if (saved?.submittedId) {
-    const record = await store.getCashout(saved.submittedId);
-    if (!record) {
+    const record = await store.getActiveCashout(employeeId);
+    if (!record || record.id !== saved.submittedId) {
       delete drafts[employeeId]; writeDraftProgress(drafts); saved = undefined;
     } else {
       const activeShift = current(record);
@@ -168,10 +165,10 @@ async function restoreDraftProgress(employeeId: string) {
     }
   }
   if (!saved && employeeId) {
-    const record = await store.getActiveCashout(today(), employeeId);
+    const record = await store.getActiveCashout(employeeId);
     if (record) {
       const activeShift = current(record);
-      if (Date.now() >= activeShift.start && Date.now() <= activeShift.end && shiftRole(activeShift) === cashoutRole) {
+      if (shiftRole(activeShift) === cashoutRole) {
         saved = {
           role: cashoutRole, draft: draftFromShift(activeShift),
           confirmed: { deliveries: true, tips: true, onlineTips: true, cashDeliveries: true },
@@ -639,7 +636,7 @@ function render() {
   if (view === "inventory" && admin) root.querySelector("main")?.insertAdjacentHTML("beforeend", inventoryView());
   if (view === "cashout" && draft.employeeId && !editId) {
     const draftNote = submittedDraftId
-      ? `✓ This cash-out is saved. You can edit and update it until ${time(submittedDraftEnd)}`
+      ? "✓ This cash-out is saved. You can edit it until an admin marks it reviewed."
       : "✓ Today’s progress is saved automatically on this computer.";
     root.querySelector("#employee")?.parentElement?.insertAdjacentHTML("beforeend", `<p class="draft-saved">${draftNote}</p>`);
   }
@@ -1145,6 +1142,11 @@ root.addEventListener("click", (event) => {
       case "set-review":
         if (!selected) return;
         await store.setReview(selected.id, button.dataset.status as ReviewStatus);
+        if (button.dataset.status === "reviewed") {
+          const reviewedShift = current(selected);
+          await store.closeActiveCashout(reviewedShift.employeeId, selected.id);
+          removeSubmittedDraft(reviewedShift.employeeId, selected.id);
+        }
         reviews = await store.getReviews();
         message = button.dataset.status === "reviewed" ? "Cash-out marked as paid and reviewed." : "Cash-out marked as partially paid and under review.";
         success = true;
@@ -1166,7 +1168,7 @@ root.addEventListener("click", (event) => {
         if (!selected || !window.confirm(`Permanently delete ${current(selected).employeeName}’s shift from ${date(current(selected).start)}?`)) return;
         {
           const deleted = current(selected), deletedId = selected.id;
-          await store.deleteShift(deletedId, deleted.employeeId, localInput(deleted.start).slice(0, 10));
+          await store.deleteShift(deletedId, deleted.employeeId);
           removeSubmittedDraft(deleted.employeeId, deletedId);
           records = await store.history(); selected = null; view = "history"; message = "Shift deleted."; success = true;
         }

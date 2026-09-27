@@ -28,6 +28,7 @@ import type {
   Employee,
   EmployeeRole,
   Expense,
+  RegisterCash,
   ReviewStatus,
   StoreCashCorrection,
   StoreCashEntry,
@@ -66,6 +67,7 @@ let companies: Record<string, Company> = {
 const expenseRecords: Record<string, Expense> = {};
 const reviewRecords: Record<string, CashoutReview> = {};
 const storeCashRecords: Record<string, StoreCashEntry> = {};
+const registerCashRecords: Record<string, RegisterCash> = {};
 const dailySalesRecords: Record<string, DailySales> = {};
 export const uid = () =>
   auth?.currentUser?.uid || kioskAuth?.currentUser?.uid || "demo-driver";
@@ -298,6 +300,15 @@ export async function correctStoreCash(
     storeCashRecords[id].corrections ||= {};
     storeCashRecords[id].corrections![key] = structuredClone(correction);
   }
+}
+export async function getRegisterCash(): Promise<Record<string, RegisterCash>> {
+  return db
+    ? (await get(ref(db, "registerCash"))).val() || {}
+    : structuredClone(registerCashRecords);
+}
+export async function saveRegisterCash(record: RegisterCash) {
+  if (db) await set(ref(db, `registerCash/${record.date}`), record);
+  else registerCashRecords[record.date] = structuredClone(record);
 }
 export async function getDailySales(): Promise<Record<string, DailySales>> {
   return db

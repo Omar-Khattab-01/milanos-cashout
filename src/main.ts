@@ -5,7 +5,7 @@ import {
   localInput, money, salesCents, storeCashAmount, total, totals, validateShift,
   type CashDelivery, type Cashout, type CashoutReview, type Company, type Employee,
   type DailySales, type EmployeeRole, type EntryList, type Expense, type ReviewStatus,
-  type Shift, type StoreCashEntry,
+  type RegisterCash, type Shift, type StoreCashEntry,
 } from "./model";
 
 const root = document.querySelector<HTMLDivElement>("#app")!;
@@ -42,6 +42,7 @@ let selected: Cashout | null = null;
 let companies: Record<string, Company> = {};
 let expenses: Expense[] = [];
 let storeCashEntries: StoreCashEntry[] = [];
+let registerCash: Record<string, RegisterCash> = {};
 let editingStoreCashId = "";
 let dailySales: Record<string, DailySales> = {};
 let expenseMonth = today().slice(0, 7);
@@ -107,13 +108,13 @@ function entrySection(kind: EntryKind, title: string, step: number) {
   const list = Object.entries(draft[kind]);
   const supportsFee = kind !== "deliveries";
   const editing = editingListEntry?.kind === kind;
-  return `<section class="card"><div class="row"><div class="section-head" style="margin:0"><span class="step">${step}</span><div><h2>${title}</h2><span class="subtle">Bill number → Space → amount → Enter.${supportsFee ? " Delivery fee is optional." : ""}</span></div></div>${confirmed[kind] ? '<span class="pill">Done</span>' : ""}</div>${!confirmed[kind] ? `<form data-form="entry" data-kind="${kind}" class="entry-input ${supportsFee ? "multi-input" : "bill-input"}">${entryField(kind, "billNumber", "Bill number", "e.g. 1042")}${entryField(kind, "amount", "Amount", "0.00", true)}${supportsFee ? entryField(kind, "deliveryFee", "Delivery fee", "0.00", true, false) : ""}<button class="primary" type="submit">${editing ? "Save changes" : "+ Add"}</button></form>` : ""}${list.length ? `<ol class="entry-list">${list.map(([id, entry], i) => { const fee = typeof entry === "number" ? 0 : entry.deliveryFeeCents || 0; return `<li><span class="subtle">${i + 1}. Bill ${esc(billOf(entry))}${supportsFee ? ` · Delivery fee ${money(fee)}` : ""}</span><span>${money(amountOf(entry))} ${!confirmed[kind] ? `<button data-action="edit-list-entry" data-kind="${kind}" data-id="${id}">Edit</button><button data-action="remove" data-kind="${kind}" data-id="${id}">×</button>` : ""}</span></li>`; }).join("")}</ol>` : '<p class="subtle">No entries yet.</p>'}<div class="row entry-footer"><span class="subtle">${list.length} entries · <strong>${money(total(draft[kind]))}</strong></span><button data-action="done" data-kind="${kind}">${confirmed[kind] ? "Edit entries" : "Done"}</button></div></section>`;
+  return `<section class="card"><div class="row"><div class="section-head" style="margin:0"><span class="step">${step}</span><div><h2>${title}</h2><span class="subtle">${supportsFee ? "Bill number → Space → amount → Space → delivery fee → Enter. Delivery fee is optional." : "Bill number → Space → amount → Enter."}</span></div></div>${confirmed[kind] ? '<span class="pill">Done</span>' : ""}</div>${!confirmed[kind] ? `<form data-form="entry" data-kind="${kind}" class="entry-input ${supportsFee ? "multi-input" : "bill-input"}">${entryField(kind, "billNumber", "Bill number", "e.g. 1042")}${entryField(kind, "amount", "Amount", "0.00", true)}${supportsFee ? entryField(kind, "deliveryFee", "Delivery fee", "0.00", true, false) : ""}<button class="primary" type="submit">${editing ? "Save changes" : "+ Add"}</button></form>` : ""}${list.length ? `<ol class="entry-list">${list.map(([id, entry], i) => { const fee = typeof entry === "number" ? 0 : entry.deliveryFeeCents || 0; return `<li><span class="subtle">${i + 1}. Bill ${esc(billOf(entry))}${supportsFee ? ` · Delivery fee ${money(fee)}` : ""}</span><span>${money(amountOf(entry))} ${!confirmed[kind] ? `<button data-action="edit-list-entry" data-kind="${kind}" data-id="${id}">Edit</button><button data-action="remove" data-kind="${kind}" data-id="${id}">×</button>` : ""}</span></li>`; }).join("")}</ol>` : '<p class="subtle">No entries yet.</p>'}<div class="row entry-footer"><span class="subtle">${list.length} entries · <strong>${money(total(draft[kind]))}</strong></span><button data-action="done" data-kind="${kind}">${confirmed[kind] ? "Edit entries" : "Done"}</button></div></section>`;
 }
 
 function cashSection() {
   const entries = Object.entries(draft.cashDeliveries), t = cashTotals(shift());
   const editing = editingListEntry?.kind === "cashDeliveries";
-  return `<section class="card"><div class="section-head"><span class="step">4</span><div><h2>Cash flow</h2><span class="subtle">Starting cash and cash-paid bills.</span></div></div><label for="startingCash">Starting cash taken</label><input id="startingCash" inputmode="decimal" data-draft="startingCash" value="${esc(draft.startingCash)}"><p class="subtle">Leave at $0.00 if no cash was taken. A bill can also appear in another section when a customer splits payment.</p><h3>Cash deliveries</h3>${!confirmed.cashDeliveries ? `<form data-form="cash-delivery" data-kind="cashDeliveries" class="entry-input multi-input">${entryField("cashDeliveries", "billNumber", "Bill number", "e.g. 1042")}${entryField("cashDeliveries", "billTotal", "Bill total", "0.00", true)}${entryField("cashDeliveries", "deliveryFee", "Delivery fee", "0.00", true, false)}<button type="submit" class="primary">${editing ? "Save changes" : "+ Add"}</button></form>` : ""}${entries.length ? `<ol class="entry-list">${entries.map(([id, e]) => `<li><span>Bill ${esc(e.billNumber)} · Delivery fee ${money(e.deliveryFeeCents || 0)}</span><span>${money(e.billTotalCents)} ${!confirmed.cashDeliveries ? `<button data-action="edit-list-entry" data-kind="cashDeliveries" data-id="${id}">Edit</button><button data-action="remove" data-kind="cashDeliveries" data-id="${id}">×</button>` : ""}</span></li>`).join("")}</ol>` : '<p class="subtle">No cash deliveries entered.</p>'}<div class="entry-footer"><div class="row"><span class="subtle">${entries.length} cash bills · <strong>${money(t.billTotals)}</strong></span><button data-action="done" data-kind="cashDeliveries">${confirmed.cashDeliveries ? "Add / edit cash deliveries" : "Done"}</button></div></div></section>`;
+  return `<section class="card"><div class="section-head"><span class="step">4</span><div><h2>Cash flow</h2><span class="subtle">Starting cash and cash-paid bills.</span></div></div><label for="startingCash">Starting cash taken</label><input id="startingCash" inputmode="decimal" data-draft="startingCash" value="${esc(draft.startingCash)}"><p class="subtle">Leave at $0.00 if no cash was taken. A bill can also appear in another section when a customer splits payment.</p><h3>Cash deliveries</h3>${!confirmed.cashDeliveries ? `<p class="subtle">Bill number → Space → bill total → Space → delivery fee → Enter.</p><form data-form="cash-delivery" data-kind="cashDeliveries" class="entry-input multi-input">${entryField("cashDeliveries", "billNumber", "Bill number", "e.g. 1042")}${entryField("cashDeliveries", "billTotal", "Bill total", "0.00", true)}${entryField("cashDeliveries", "deliveryFee", "Delivery fee", "0.00", true, false)}<button type="submit" class="primary">${editing ? "Save changes" : "+ Add"}</button></form>` : ""}${entries.length ? `<ol class="entry-list">${entries.map(([id, e]) => `<li><span>Bill ${esc(e.billNumber)} · Delivery fee ${money(e.deliveryFeeCents || 0)}</span><span>${money(e.billTotalCents)} ${!confirmed.cashDeliveries ? `<button data-action="edit-list-entry" data-kind="cashDeliveries" data-id="${id}">Edit</button><button data-action="remove" data-kind="cashDeliveries" data-id="${id}">×</button>` : ""}</span></li>`).join("")}</ol>` : '<p class="subtle">No cash deliveries entered.</p>'}<div class="entry-footer"><div class="row"><span class="subtle">${entries.length} cash bills · <strong>${money(t.billTotals)}</strong></span><button data-action="done" data-kind="cashDeliveries">${confirmed.cashDeliveries ? "Add / edit cash deliveries" : "Done"}</button></div></div></section>`;
 }
 
 function cashout() {
@@ -146,11 +147,13 @@ function storeCashView() {
   const day = today();
   const entries = storeCashEntries.filter((entry) => entry.date === day);
   const totalReceived = entries.reduce((sum, entry) => sum + storeCashAmount(entry), 0);
+  const openingCash = registerCash[day]?.openingCashCents || 0;
+  const expectedCash = openingCash + totalReceived;
   const editing = entries.find((entry) => entry.id === editingStoreCashId);
   const form = editing
     ? `<h2>Correct cash amount</h2><p class="subtle">Bill ${esc(editing.billNumber || "Not recorded")} · The original amount remains in the audit history.</p><form data-form="store-cash-edit" data-id="${editing.id}"><label for="store-cash-edit-amount">Corrected amount received</label><input id="store-cash-edit-amount" name="amount" inputmode="decimal" value="${(storeCashAmount(editing) / 100).toFixed(2)}" autocomplete="off" required autofocus><div class="row" style="margin-top:16px"><button class="primary" type="submit">Save correction</button><button type="button" data-action="cancel-store-cash-edit">Cancel</button></div></form>`
     : `<h2>Add cash order</h2><p class="subtle">Today’s date is added automatically. Saved payments cannot be deleted.</p><form data-form="store-cash"><label for="store-cash-bill">Bill number</label><input id="store-cash-bill" name="billNumber" inputmode="numeric" maxlength="40" placeholder="e.g. 1042" autocomplete="off" required autofocus><label for="store-cash-amount">Amount received</label><input id="store-cash-amount" name="amount" inputmode="decimal" placeholder="0.00" autocomplete="off" required><button class="primary wide" type="submit" style="margin-top:16px">Save cash received</button></form>`;
-  return `<div class="intro"><div><div class="eyebrow">Cashier desk</div><h1>Cash received in store</h1><span class="subtle">Enter the bill number and cash received. No cashier name is required.</span></div><span class="pill">${esc(day)}</span></div><div class="split"><section class="card">${form}</section><section class="card"><h2>Today’s total</h2><div class="grand"><span>Cash received</span><strong>${money(totalReceived)}</strong></div><p class="subtle">${entries.length} ${entries.length === 1 ? "entry" : "entries"} today</p></section></div><section class="card table-wrap"><h2>Today’s entries</h2>${entries.length ? `<table><thead><tr><th>Time</th><th>Bill number</th><th>Amount</th><th></th></tr></thead><tbody>${entries.map((entry) => `<tr><td>${time(entry.createdAt)}</td><td><strong>${esc(entry.billNumber || "Not recorded")}</strong></td><td>${money(storeCashAmount(entry))}${entry.corrections ? ' <span class="subtle">Corrected</span>' : ""}</td><td><button data-action="edit-store-cash" data-id="${entry.id}">Edit amount</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No in-store cash has been entered today.</div>'}</section>`;
+  return `<div class="intro"><div><div class="eyebrow">Cashier desk</div><h1>Cash received in store</h1><span class="subtle">Enter the bill number and cash received. No cashier name is required.</span></div><span class="pill">${esc(day)}</span></div><div class="split"><section class="card">${form}</section><section class="card"><h2>Register cash</h2><div class="summary-line"><span>Opening cash in register</span><strong>${money(openingCash)}</strong></div><div class="summary-line"><span>Cash received today</span><strong>${money(totalReceived)}</strong></div><div class="grand"><span>Expected cash in register</span><strong>${money(expectedCash)}</strong></div><p class="subtle">Opening cash is separate from today’s payments and does not count as sales.</p><details><summary>${registerCash[day] ? "Edit opening cash" : "Set opening cash"} (admin)</summary><form data-form="register-cash"><label for="register-opening-cash">Opening cash for today</label><input id="register-opening-cash" name="amount" inputmode="decimal" value="${(openingCash / 100).toFixed(2)}" autocomplete="off" required><label for="register-pin">Admin PIN</label><input id="register-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" autocomplete="off" placeholder="Enter 4-digit PIN" required><button class="primary wide" type="submit">Save opening cash</button></form></details><p class="subtle">${entries.length} ${entries.length === 1 ? "payment" : "payments"} entered today</p></section></div><section class="card table-wrap"><h2>Today’s cash received</h2>${entries.length ? `<table><thead><tr><th>Time</th><th>Bill number</th><th>Amount received</th><th></th></tr></thead><tbody>${entries.map((entry) => `<tr><td>${time(entry.createdAt)}</td><td><strong>${esc(entry.billNumber || "Not recorded")}</strong></td><td>${money(storeCashAmount(entry))}${entry.corrections ? ' <span class="subtle">Corrected</span>' : ""}</td><td><button data-action="edit-store-cash" data-id="${entry.id}">Edit amount</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No in-store cash has been entered today.</div>'}</section>`;
 }
 
 function reviewState(id: string): "not_reviewed" | ReviewStatus {
@@ -241,7 +244,14 @@ function render() {
     const intro = root.querySelector("main")?.querySelector(".intro");
     const subtitle = intro?.querySelector<HTMLElement>(".subtle");
     if (subtitle) subtitle.textContent = "Track costs and reconcile daily sales.";
-    intro?.insertAdjacentHTML("afterend", dailySalesView());
+    const salesHtml = dailySalesView()
+      .replace("Month difference:", "Month unreconciled difference:")
+      .replace("<th>Difference</th>", "<th>Unreconciled difference</th>")
+      .replace(
+        "</p></div>",
+        "</p><p class=\"subtle\"><strong>What it means:</strong> $0 is balanced. A positive amount means some sales are not matched to a recorded payment source. A negative amount means recorded payment sources are higher than sales.</p></div>",
+      );
+    intro?.insertAdjacentHTML("afterend", salesHtml);
   }
   if (datesOpen) root.querySelector<HTMLDetailsElement>(".date-options")!.open = true;
   if (busy) root.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
@@ -297,9 +307,13 @@ root.addEventListener("input", (event) => {
 
 root.addEventListener("keydown", (event) => {
   const el = event.target as HTMLInputElement;
-  if (event.key === " " && el.name === "billNumber" && el.closest("form[data-kind]")) {
+  const form = el.closest<HTMLFormElement>("form[data-kind]");
+  if (event.key === " " && el.name === "billNumber" && form) {
     event.preventDefault();
-    el.closest("form")!.querySelector<HTMLInputElement>('[name="amount"], [name="billTotal"]')?.focus();
+    form.querySelector<HTMLInputElement>('[name="amount"], [name="billTotal"]')?.focus();
+  } else if (event.key === " " && (el.name === "amount" || el.name === "billTotal") && form?.querySelector('[name="deliveryFee"]')) {
+    event.preventDefault();
+    form.querySelector<HTMLInputElement>('[name="deliveryFee"]')?.focus();
   }
 });
 
@@ -346,7 +360,7 @@ root.addEventListener("submit", (event) => {
         await store.login(String(data.get("pin")));
         await store.authorizeDevice();
         await store.logout();
-        [roster, rates, storeCashEntries] = await Promise.all([store.roster(), store.getRates(), store.getStoreCash()]);
+        [roster, rates, storeCashEntries, registerCash] = await Promise.all([store.roster(), store.getRates(), store.getStoreCash(), store.getRegisterCash()]);
         view = deviceTarget;
         message = "This computer is authorized. Employee tools will stay unlocked here.";
         success = true;
@@ -400,6 +414,17 @@ root.addEventListener("submit", (event) => {
         storeCashEntries = await store.getStoreCash(); editingStoreCashId = "";
         message = `Bill ${entry.billNumber || "Not recorded"} corrected to ${money(amountCents)}.`; success = true; break;
       }
+      case "register-cash": {
+        const openingCashCents = salesCents(String(data.get("amount")));
+        await store.login(String(data.get("pin")));
+        try {
+          await store.saveRegisterCash({ date: today(), openingCashCents, updatedAt: Date.now(), updatedBy: store.uid() });
+        } finally {
+          await store.logout();
+        }
+        registerCash = await store.getRegisterCash();
+        message = `Opening register cash saved: ${money(openingCashCents)}.`; success = true; break;
+      }
       case "daily-sales": {
         const salesDate = String(data.get("date"));
         if (!/^\d{4}-\d{2}-\d{2}$/.test(salesDate)) throw new Error("Enter the sales date.");
@@ -447,7 +472,7 @@ root.addEventListener("click", (event) => {
         if (admin) await store.logout();
         admin = false; deviceTarget = "store-cash"; editingStoreCashId = ""; editId = ""; selected = null; view = "store-cash";
         try {
-          storeCashEntries = await store.getStoreCash();
+          [storeCashEntries, registerCash] = await Promise.all([store.getStoreCash(), store.getRegisterCash()]);
         } catch {
           view = "device-login";
         }

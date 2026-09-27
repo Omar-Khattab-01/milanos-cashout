@@ -58,6 +58,12 @@ export type StoreCashCorrection = {
   editedAt: number;
   editedBy: string;
 };
+export type RegisterCash = {
+  date: string;
+  openingCashCents: number;
+  updatedAt: number;
+  updatedBy: string;
+};
 export type DailySales = {
   date: string;
   pcSalesCents: number;

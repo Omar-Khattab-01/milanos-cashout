@@ -373,6 +373,23 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       }));
       await assertFails(remove(ref(db("admin"), "storeCash/legacy-cash")));
 
+      const openingCash = {
+        date: "2026-09-20",
+        openingCashCents: 15000,
+        updatedAt: Date.now(),
+        updatedBy: "admin",
+      };
+      await assertFails(set(ref(db("kiosk"), "registerCash/2026-09-20"), { ...openingCash, updatedBy: "kiosk" }));
+      await assertSucceeds(set(ref(db("admin"), "registerCash/2026-09-20"), openingCash));
+      await assertSucceeds(get(ref(db("kiosk"), "registerCash")));
+      await assertFails(get(ref(db("stranger"), "registerCash")));
+      await assertSucceeds(set(ref(db("admin"), "registerCash/2026-09-20"), {
+        ...openingCash,
+        openingCashCents: 0,
+        updatedAt: Date.now(),
+      }));
+      await assertFails(remove(ref(db("admin"), "registerCash/2026-09-20")));
+
       const sales = {
         date: "2026-09-20",
         pcSalesCents: 100000,

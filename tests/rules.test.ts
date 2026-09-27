@@ -229,7 +229,7 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       expect(
         (
           await get(ref(db("admin"), "cashouts/shift/tips/e000/amountCents"))
-        ).val(),
+      ).val(),
       ).toBe(250);
       await set(ref(db("admin"), "cashoutReviews/shift"), {
         status: "reviewed",
@@ -242,6 +242,23 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
           "cashoutReviews/shift": null,
         }),
       );
+    });
+    it("lets the originating store computer update a saved cash-out during its active shift", async () => {
+      const activeStart = start + 7 * 3600000;
+      const activeEnd = start + 9 * 3600000;
+      const activeRecord = { ...record, id: "active-shift", start: activeStart, end: activeEnd };
+      const activeCorrection = { ...correction, start: activeStart, end: activeEnd, editedBy: "kiosk" };
+      await assertSucceeds(set(ref(db("kiosk"), "cashouts/active-shift"), activeRecord));
+      await assertSucceeds(set(ref(db("kiosk"), "cashouts/active-shift/corrections/employee-update"), activeCorrection));
+      await assertSucceeds(set(ref(db("admin"), "devices/other-kiosk"), true));
+      await assertFails(set(ref(db("other-kiosk"), "cashouts/active-shift/corrections/other-device"), {
+        ...activeCorrection,
+        editedBy: "other-kiosk",
+      }));
+      await assertFails(set(ref(db("kiosk"), "cashouts/active-shift/corrections/spoofed-name"), {
+        ...activeCorrection,
+        employeeName: "Other",
+      }));
     });
     it("validates online tips and cash-delivery fields server-side", async () => {
       const cash = {

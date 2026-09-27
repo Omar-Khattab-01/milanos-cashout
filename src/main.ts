@@ -162,6 +162,24 @@ function markDraftSubmitted(employeeId: string, recordId: string, end: number) {
   writeDraftProgress(drafts);
 }
 
+async function offerCashFlowReturn(shift: Shift) {
+  if (shiftRole(shift) !== "driver" || !(shift.startingCashCents || 0)) return "";
+  const shiftDay = localInput(shift.start).slice(0, 10);
+  const openFlows = cashFlows.filter((entry) => entry.date === shiftDay && entry.employeeId === shift.employeeId && cashFlowNet(entry) > 0);
+  if (!openFlows.length) return "";
+  if (!window.confirm("Did you return the cash flow to the register?")) {
+    return Date.now() <= shift.end
+      ? "Cash-out saved. The cash flow remains with the driver during this shift."
+      : "Cash-out saved. The cash flow is flagged as not returned.";
+  }
+  await Promise.all(openFlows.map((entry) => store.returnCashFlow(entry.id, {
+    amountCents: cashFlowNet(entry), returnedAt: Date.now(), returnedBy: store.uid(),
+  })));
+  cashFlows = await store.getCashFlows();
+  success = true;
+  return "Cash-out saved and the cash flow was returned to the register.";
+}
+
 function fresh() {
   customDates = false;
   return {
@@ -236,7 +254,7 @@ function cashout() {
   const driverSummary = role === "driver" ? `<div class="summary-line"><span class="subtle">Delivery fees</span><strong>${money(t.deliveries)}</strong></div><div class="summary-line"><span class="subtle">Tips</span><strong>${money(t.tips + t.cashTips)}</strong></div><div class="summary-line"><span class="subtle">Tips Online</span><strong>${money(t.onlineTips)}</strong></div>` : "";
   const cashSummary = role === "driver" ? `<div class="summary-line"><span class="subtle">Starting cash</span><strong>${Number.isFinite(s.startingCashCents) ? money(cash.startingCash) : "—"}</strong></div><div class="summary-line"><span class="subtle">Cash bill totals</span><strong>${money(cash.billTotals)}</strong></div><div class="grand"><span>Cash owed to store</span><strong>${Number.isFinite(s.startingCashCents) ? money(cash.owed) : "—"}</strong></div><p class="subtle">Starting cash plus cash bill totals. Earnings are paid separately.</p>` : "";
   const displayedTotal = role === "driver" ? (valid ? t.wages : 0) + t.deliveries + t.tips + t.onlineTips + t.cashTips : valid ? t.wages : 0;
-  return `${tabs}<div class="intro"><div><div class="eyebrow">${roleName(role)} cash-out</div><h1>${editId ? "Correct this shift" : "Let’s wrap up your shift."}</h1><span class="subtle">${role === "driver" ? "Enter each bill once with its tip and delivery fee." : "Enter your start and end time."}</span></div><span class="pill">${money(s.rateCents)} / hour</span></div><div class="layout"><div>${shiftCard}${driverSections}${correction}</div><aside class="card summary"><div class="eyebrow">Ready when you are</div><h2 style="margin-top:9px">Shift summary</h2><div class="summary-line"><span class="subtle">Employee</span><strong>${esc(s.employeeName || "Not selected")}</strong></div><div class="summary-line"><span class="subtle">Role</span><strong>${roleName(role)}</strong></div><div class="summary-line"><span class="subtle">Time worked</span><strong>${valid ? hours(t.minutes) : "—"}</strong></div><div class="summary-line"><span class="subtle">Hourly pay</span><strong>${valid ? money(t.wages) : "—"}</strong></div>${driverSummary}<div class="grand"><span>Total pay</span><strong>${money(displayedTotal)}</strong></div>${cashSummary}<button class="red wide" data-action="save">${busy ? "Saving…" : editId ? "Save correction" : "Save cash-out"}</button><p class="print-note">${store.demo ? "Demo records stay in memory only." : "Your cash-out will be saved in the system."}<br>Receipts can be printed from History.</p>${editId ? '<button class="wide" data-action="cancel-edit">Cancel correction</button>' : ""}</aside></div>`;
+  return `${tabs}<div class="intro"><div><div class="eyebrow">${roleName(role)} cash-out</div><h1>${editId ? "Correct this shift" : "Let’s wrap up your shift."}</h1><span class="subtle">${role === "driver" ? "Enter each bill once with its tip and delivery fee." : "Enter your start and end time."}</span></div><span class="pill">${money(s.rateCents)} / hour</span></div><div class="layout"><div>${shiftCard}${driverSections}${correction}</div><aside class="card summary"><div class="eyebrow">Ready when you are</div><h2 style="margin-top:9px">Shift summary</h2><div class="summary-line"><span class="subtle">Employee</span><strong>${esc(s.employeeName || "Not selected")}</strong></div><div class="summary-line"><span class="subtle">Role</span><strong>${roleName(role)}</strong></div><div class="summary-line"><span class="subtle">Time worked</span><strong>${valid ? hours(t.minutes) : "—"}</strong></div><div class="summary-line"><span class="subtle">Hourly pay</span><strong>${valid ? money(t.wages) : "—"}</strong></div>${driverSummary}<div class="grand"><span>Total pay</span><strong>${money(displayedTotal)}</strong></div>${cashSummary}<button class="red wide" data-action="save">${busy ? "Saving…" : editId ? "Save correction" : submittedDraftId ? "Update cash-out" : "Save cash-out"}</button><p class="print-note">${store.demo ? "Demo records stay in memory only." : "Your cash-out will be saved in the system."}<br>Receipts can be printed from History.</p>${editId ? '<button class="wide" data-action="cancel-edit">Cancel correction</button>' : ""}</aside></div>`;
 }
 
 function loginView() {
@@ -573,15 +591,9 @@ function render() {
   if (view === "inventory" && admin) root.querySelector("main")?.insertAdjacentHTML("beforeend", inventoryView());
   if (view === "cashout" && draft.employeeId && !editId) {
     const draftNote = submittedDraftId
-      ? `✓ This cash-out is saved. You can view it here until ${time(submittedDraftEnd)}`
+      ? `✓ This cash-out is saved. You can edit and update it until ${time(submittedDraftEnd)}`
       : "✓ Today’s progress is saved automatically on this computer.";
     root.querySelector("#employee")?.parentElement?.insertAdjacentHTML("beforeend", `<p class="draft-saved">${draftNote}</p>`);
-  }
-  if (view === "cashout" && submittedDraftId && !editId) {
-    root.querySelectorAll<HTMLInputElement>('[data-draft]:not(#employee)').forEach((input) => (input.disabled = true));
-    root.querySelectorAll<HTMLButtonElement>('[data-action="done"], [data-action="remove"], [data-action="edit-list-entry"], [data-action="save"]').forEach((button) => (button.disabled = true));
-    const saveButton = root.querySelector<HTMLButtonElement>('[data-action="save"]');
-    if (saveButton) saveButton.textContent = "Cash-out already saved";
   }
   const startingCashInput = view === "cashout" && cashoutRole === "driver" ? root.querySelector<HTMLInputElement>('#startingCash') : null;
   if (startingCashInput) {
@@ -1043,34 +1055,27 @@ root.addEventListener("click", (event) => {
         pending = null; break;
       }
       case "save": {
-        if (submittedDraftId && !editId) throw new Error("This cash-out has already been saved.");
         confirmed = { deliveries: true, tips: true, onlineTips: true, cashDeliveries: true };
         const s = shift(); validateShift(s);
         if (editId) {
           if (!reason.trim()) throw new Error("Enter a reason for the correction.");
           await store.correct(editId, { ...s, reason: reason.trim(), editedAt: Date.now(), editedBy: store.uid() });
           records = await store.history(); selected = records.find((r) => r.id === editId) || null; editId = ""; view = "detail";
+        } else if (submittedDraftId) {
+          const recordId = submittedDraftId;
+          await store.correct(recordId, {
+            ...s, reason: "Updated by employee during active shift", editedAt: Date.now(), editedBy: store.uid(),
+          });
+          selected = { ...s, id: recordId, createdBy: store.uid(), createdAt: Date.now() };
+          markDraftSubmitted(s.employeeId, recordId, s.end);
+          message = await offerCashFlowReturn(s) || "Cash-out updated.";
+          success = true; view = "saved"; pending = null;
         } else {
           pending ||= { ...s, id: crypto.randomUUID(), createdBy: store.uid(), createdAt: Date.now() };
           await store.save(pending);
           selected = structuredClone(pending);
           markDraftSubmitted(s.employeeId, pending.id, s.end);
-          if (shiftRole(s) === "driver" && (s.startingCashCents || 0) > 0) {
-            const returned = window.confirm("Did you return the cash flow to the register?");
-            if (returned) {
-              const openFlows = cashFlows.filter((entry) => entry.date === today() && entry.employeeId === s.employeeId && cashFlowNet(entry) > 0);
-              await Promise.all(openFlows.map((entry) => store.returnCashFlow(entry.id, {
-                amountCents: cashFlowNet(entry), returnedAt: Date.now(), returnedBy: store.uid(),
-              })));
-              cashFlows = await store.getCashFlows();
-              message = "Cash-out saved and the cash flow was returned to the register.";
-              success = true;
-            } else {
-              message = Date.now() <= s.end
-                ? "Cash-out saved. The cash flow remains with the driver during this shift."
-                : "Cash-out saved. The cash flow is flagged as not returned.";
-            }
-          }
+          message = await offerCashFlowReturn(s);
           view = "saved"; pending = null;
         }
         draft = fresh(); editingListEntry = null; Object.keys(entryInputs).forEach((key) => delete entryInputs[key]); confirmed = emptyConfirmed(); break;

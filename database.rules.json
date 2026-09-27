@@ -237,6 +237,22 @@
         "$other": { ".validate": false }
       }
     },
+    "activeCashouts": {
+      "$date": {
+        "$employeeId": {
+          ".read": "auth != null && (root.child('devices').child(auth.uid).val() === true || root.child('admins').child(auth.uid).val() === true)",
+          ".write": "auth != null && (root.child('admins').child(auth.uid).val() === true || (root.child('devices').child(auth.uid).val() === true && newData.exists() && newData.child('createdBy').val() === auth.uid && (!data.exists() || data.child('createdBy').val() === auth.uid)))",
+          ".validate": "!newData.exists() || (newData.hasChildren(['recordId','employeeId','date','end','createdBy','updatedAt']) && newData.child('employeeId').val() === $employeeId && newData.child('date').val() === $date && root.child('cashouts').child(newData.child('recordId').val()).exists() && root.child('cashouts').child(newData.child('recordId').val()).child('employeeId').val() === $employeeId && root.child('cashouts').child(newData.child('recordId').val()).child('createdBy').val() === newData.child('createdBy').val())",
+          "recordId": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 100" },
+          "employeeId": { ".validate": "newData.isString()" },
+          "date": { ".validate": "newData.isString() && newData.val().matches(/^\\d{4}-\\d{2}-\\d{2}$/)" },
+          "end": { ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 0" },
+          "createdBy": { ".validate": "newData.isString()" },
+          "updatedAt": { ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= now - 300000 && newData.val() <= now + 60000" },
+          "$other": { ".validate": false }
+        }
+      }
+    },
     "cashouts": {
       ".read": "auth != null && root.child('admins').child(auth.uid).val() === true",
       ".indexOn": ["createdAt"],

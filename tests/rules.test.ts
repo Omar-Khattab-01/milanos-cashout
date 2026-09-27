@@ -249,8 +249,21 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       const activeRecord = { ...record, id: "active-shift", start: activeStart, end: activeEnd };
       const activeCorrection = { ...correction, start: activeStart, end: activeEnd, editedBy: "kiosk" };
       await assertSucceeds(set(ref(db("kiosk"), "cashouts/active-shift"), activeRecord));
+      const activeLink = {
+        recordId: "active-shift",
+        employeeId: "alex",
+        date: "2026-09-27",
+        end: activeEnd,
+        createdBy: "kiosk",
+        updatedAt: Date.now(),
+      };
+      await assertSucceeds(set(ref(db("kiosk"), "activeCashouts/2026-09-27/alex"), activeLink));
+      await assertSucceeds(get(ref(db("kiosk"), "activeCashouts/2026-09-27/alex")));
+      await assertFails(get(ref(db("stranger"), "activeCashouts/2026-09-27/alex")));
+      await assertFails(set(ref(db("kiosk"), "activeCashouts/2026-09-27/chris"), { ...activeLink, employeeId: "chris" }));
       await assertSucceeds(set(ref(db("kiosk"), "cashouts/active-shift/corrections/employee-update"), activeCorrection));
       await assertSucceeds(set(ref(db("admin"), "devices/other-kiosk"), true));
+      await assertFails(set(ref(db("other-kiosk"), "activeCashouts/2026-09-27/alex"), { ...activeLink, createdBy: "other-kiosk" }));
       await assertFails(set(ref(db("other-kiosk"), "cashouts/active-shift/corrections/other-device"), {
         ...activeCorrection,
         editedBy: "other-kiosk",
@@ -258,6 +271,10 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertFails(set(ref(db("kiosk"), "cashouts/active-shift/corrections/spoofed-name"), {
         ...activeCorrection,
         employeeName: "Other",
+      }));
+      await assertSucceeds(update(ref(db("admin")), {
+        "cashouts/active-shift": null,
+        "activeCashouts/2026-09-27/alex": null,
       }));
     });
     it("validates online tips and cash-delivery fields server-side", async () => {

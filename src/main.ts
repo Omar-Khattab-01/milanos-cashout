@@ -128,11 +128,58 @@ function saveDraftProgress() {
   writeDraftProgress(drafts);
 }
 
-function restoreDraftProgress(employeeId: string) {
+function draftFromShift(shift: Shift) {
+  return {
+    employeeId: shift.employeeId,
+    startDate: localInput(shift.start).slice(0, 10),
+    endDate: localInput(shift.end).slice(0, 10),
+    start: localInput(shift.start).slice(11, 16),
+    end: localInput(shift.end).slice(11, 16),
+    deliveries: structuredClone(shift.deliveries || {}),
+    tips: structuredClone(shift.tips || {}),
+    onlineTips: structuredClone(shift.onlineTips || {}),
+    startingCash: ((shift.startingCashCents || 0) / 100).toFixed(2),
+    cashDeliveries: structuredClone(shift.cashDeliveries || {}),
+  };
+}
+
+function removeSubmittedDraft(employeeId: string, recordId: string) {
+  const drafts = readDraftProgress();
+  if (drafts[employeeId]?.submittedId === recordId) {
+    delete drafts[employeeId];
+    writeDraftProgress(drafts);
+  }
+}
+
+async function restoreDraftProgress(employeeId: string) {
   const drafts = readDraftProgress();
   let saved: SavedCashoutDraft | undefined = drafts[employeeId];
   if (saved?.submittedId && (!saved.submittedEnd || Date.now() < new Date(`${saved.draft.startDate}T${saved.draft.start}`).getTime() || Date.now() > saved.submittedEnd)) {
     delete drafts[employeeId]; writeDraftProgress(drafts); saved = undefined;
+  }
+  if (saved?.submittedId) {
+    const record = await store.getCashout(saved.submittedId);
+    if (!record) {
+      delete drafts[employeeId]; writeDraftProgress(drafts); saved = undefined;
+    } else {
+      const activeShift = current(record);
+      saved = { ...saved, role: shiftRole(activeShift), draft: draftFromShift(activeShift), submittedEnd: activeShift.end };
+      drafts[employeeId] = saved; writeDraftProgress(drafts);
+    }
+  }
+  if (!saved && employeeId) {
+    const record = await store.getActiveCashout(today(), employeeId);
+    if (record) {
+      const activeShift = current(record);
+      if (Date.now() >= activeShift.start && Date.now() <= activeShift.end && shiftRole(activeShift) === cashoutRole) {
+        saved = {
+          role: cashoutRole, draft: draftFromShift(activeShift),
+          confirmed: { deliveries: true, tips: true, onlineTips: true, cashDeliveries: true },
+          entryInputs: {}, savedAt: Date.now(), submittedId: record.id, submittedEnd: activeShift.end,
+        };
+        drafts[employeeId] = saved; writeDraftProgress(drafts);
+      }
+    }
   }
   const next = saved?.role === cashoutRole ? structuredClone(saved.draft) : fresh();
   next.employeeId = employeeId;
@@ -701,9 +748,7 @@ root.addEventListener("change", (event) => {
   const el = event.target as HTMLInputElement;
   if (el.dataset.draft === "employeeId" && !editId) {
     saveDraftProgress();
-    restoreDraftProgress(el.value);
-    saveDraftProgress();
-    render();
+    void run(async () => { await restoreDraftProgress(el.value); });
     return;
   }
   if (el.dataset.draft) {
@@ -1067,6 +1112,10 @@ root.addEventListener("click", (event) => {
           await store.correct(recordId, {
             ...s, reason: "Updated by employee during active shift", editedAt: Date.now(), editedBy: store.uid(),
           });
+          await store.saveActiveCashout({
+            recordId, employeeId: s.employeeId, date: localInput(s.start).slice(0, 10),
+            end: s.end, createdBy: store.uid(), updatedAt: Date.now(),
+          });
           selected = { ...s, id: recordId, createdBy: store.uid(), createdAt: Date.now() };
           markDraftSubmitted(s.employeeId, recordId, s.end);
           message = await offerCashFlowReturn(s) || "Cash-out updated.";
@@ -1074,6 +1123,10 @@ root.addEventListener("click", (event) => {
         } else {
           pending ||= { ...s, id: crypto.randomUUID(), createdBy: store.uid(), createdAt: Date.now() };
           await store.save(pending);
+          await store.saveActiveCashout({
+            recordId: pending.id, employeeId: s.employeeId, date: localInput(s.start).slice(0, 10),
+            end: s.end, createdBy: store.uid(), updatedAt: Date.now(),
+          });
           selected = structuredClone(pending);
           markDraftSubmitted(s.employeeId, pending.id, s.end);
           message = await offerCashFlowReturn(s);
@@ -1115,7 +1168,13 @@ root.addEventListener("click", (event) => {
       }
       case "delete-shift":
         if (!selected || !window.confirm(`Permanently delete ${current(selected).employeeName}’s shift from ${date(current(selected).start)}?`)) return;
-        await store.deleteShift(selected.id); records = await store.history(); selected = null; view = "history"; message = "Shift deleted."; success = true; break;
+        {
+          const deleted = current(selected), deletedId = selected.id;
+          await store.deleteShift(deletedId, deleted.employeeId, localInput(deleted.start).slice(0, 10));
+          removeSubmittedDraft(deleted.employeeId, deletedId);
+          records = await store.history(); selected = null; view = "history"; message = "Shift deleted."; success = true;
+        }
+        break;
       case "delete-expense":
         if (!window.confirm("Delete this order expense?")) return;
         await store.deleteExpense(button.dataset.id!); expenses = await store.getExpenses(); message = "Expense deleted."; success = true; break;

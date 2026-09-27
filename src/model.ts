@@ -135,6 +135,14 @@ export type Cashout = Shift & {
   createdAt: number;
   corrections?: Record<string, Correction>;
 };
+export type ActiveCashoutLink = {
+  recordId: string;
+  employeeId: string;
+  date: string;
+  end: number;
+  createdBy: string;
+  updatedAt: number;
+};
 export const money = (cents: number) =>
   new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(
     cents / 100,

@@ -599,6 +599,28 @@ a {
   font-size: 22px;
   font-weight: 800;
 }
+.cash-flow-status {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.cash-flow-status.returned {
+  color: #12623c;
+  background: #def3e7;
+}
+.cash-flow-status.with-driver {
+  color: #77590b;
+  background: #fff1bf;
+}
+.cash-flow-status.not-returned {
+  color: #a42424;
+  background: #fde2e2;
+}
 .balanced {
   color: #198447;
 }

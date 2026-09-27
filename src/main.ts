@@ -82,12 +82,16 @@ let filterDate = "";
 const entryInputs: Record<string, Record<string, string>> = {};
 const emptyConfirmed = () => ({ deliveries: true, tips: false, onlineTips: false, cashDeliveries: true });
 let confirmed = emptyConfirmed();
+let submittedDraftId = "";
+let submittedDraftEnd = 0;
 type SavedCashoutDraft = {
   role: EmployeeRole;
   draft: ReturnType<typeof fresh>;
   confirmed: ReturnType<typeof emptyConfirmed>;
   entryInputs: Record<string, Record<string, string>>;
   savedAt: number;
+  submittedId?: string;
+  submittedEnd?: number;
 };
 const draftStorageKey = "milanos-cashout-drafts-v1";
 let activeDraftDay = today();
@@ -119,21 +123,20 @@ function saveDraftProgress() {
     confirmed: structuredClone(confirmed),
     entryInputs: structuredClone(entryInputs),
     savedAt: Date.now(),
+    ...(submittedDraftId ? { submittedId: submittedDraftId, submittedEnd: submittedDraftEnd } : {}),
   };
   writeDraftProgress(drafts);
 }
 
-function removeDraftProgress(employeeId: string) {
-  const drafts = readDraftProgress();
-  delete drafts[employeeId];
-  writeDraftProgress(drafts);
-}
-
 function restoreDraftProgress(employeeId: string) {
-  const saved = readDraftProgress()[employeeId];
+  const drafts = readDraftProgress();
+  let saved: SavedCashoutDraft | undefined = drafts[employeeId];
+  if (saved?.submittedId && (!saved.submittedEnd || Date.now() < new Date(`${saved.draft.startDate}T${saved.draft.start}`).getTime() || Date.now() > saved.submittedEnd)) {
+    delete drafts[employeeId]; writeDraftProgress(drafts); saved = undefined;
+  }
   const next = saved?.role === cashoutRole ? structuredClone(saved.draft) : fresh();
   next.employeeId = employeeId;
-  if (cashoutRole === "driver") {
+  if (cashoutRole === "driver" && !saved?.submittedId) {
     const startingCash = cashFlows.reduce((sum, entry) => sum + (entry.date === today() && entry.employeeId === employeeId ? cashFlowNet(entry) : 0), 0);
     next.startingCash = (startingCash / 100).toFixed(2);
   }
@@ -141,8 +144,22 @@ function restoreDraftProgress(employeeId: string) {
   confirmed = saved?.role === cashoutRole ? structuredClone(saved.confirmed) : emptyConfirmed();
   Object.keys(entryInputs).forEach((key) => delete entryInputs[key]);
   if (saved?.role === cashoutRole) Object.assign(entryInputs, structuredClone(saved.entryInputs || {}));
+  submittedDraftId = saved?.role === cashoutRole ? saved.submittedId || "" : "";
+  submittedDraftEnd = submittedDraftId ? saved?.submittedEnd || 0 : 0;
   editingListEntry = null;
   pending = null;
+}
+
+function markDraftSubmitted(employeeId: string, recordId: string, end: number) {
+  submittedDraftId = recordId; submittedDraftEnd = end;
+  const drafts = readDraftProgress();
+  drafts[employeeId] = {
+    role: cashoutRole,
+    draft: structuredClone(draft),
+    confirmed: { deliveries: true, tips: true, onlineTips: true, cashDeliveries: true },
+    entryInputs: {}, savedAt: Date.now(), submittedId: recordId, submittedEnd: end,
+  };
+  writeDraftProgress(drafts);
 }
 
 function fresh() {
@@ -264,11 +281,21 @@ function reviewBadge(id: string) {
   return `<span class="review-status ${status}">${label}</span>`;
 }
 
+function cashFlowBadge(shift: Shift) {
+  if (shiftRole(shift) !== "driver" || !(shift.startingCashCents || 0)) return "—";
+  const shiftDay = localInput(shift.start).slice(0, 10);
+  const relatedFlows = cashFlows.filter((entry) => entry.employeeId === shift.employeeId && entry.date === shiftDay);
+  const remaining = relatedFlows.reduce((sum, entry) => sum + cashFlowNet(entry), 0);
+  if (relatedFlows.length && remaining <= 0) return '<span class="cash-flow-status returned">Returned</span>';
+  if (Date.now() <= shift.end) return `<span class="cash-flow-status with-driver">With driver · ${money(remaining || shift.startingCashCents || 0)}</span>`;
+  return `<span class="cash-flow-status not-returned">Not returned · ${money(remaining || shift.startingCashCents || 0)}</span>`;
+}
+
 function historyView() {
   const filtered = records.filter((r) => (!filterEmployee || current(r).employeeId === filterEmployee) && (!filterDate || localInput(current(r).start).slice(0, 10) === filterDate));
   const filteredFlows = cashFlows.filter((entry) => (!filterEmployee || entry.employeeId === filterEmployee) && (!filterDate || entry.date === filterDate));
   const flowHistory = `<section class="card table-wrap"><h2>Driver cash-flow history</h2><p class="subtle">Every amount taken and put back remains recorded.</p>${filteredFlows.length ? `<table><thead><tr><th>Date / time</th><th>Driver</th><th>Taken</th><th>Put back</th><th>Remaining</th></tr></thead><tbody>${filteredFlows.map((entry) => `<tr><td>${esc(entry.date)}<br><span class="subtle">${time(entry.createdAt)}</span></td><td><strong>${esc(entry.employeeName)}</strong></td><td>${money(entry.amountCents)}</td><td>${cashFlowReturned(entry) ? `${money(cashFlowReturned(entry))}<br><span class="subtle">${Object.values(entry.returns || {}).map((item) => time(item.returnedAt)).join(", ")}</span>` : "—"}</td><td><strong>${money(cashFlowNet(entry))}</strong></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No driver cash-flow records match these filters.</div>'}</section>`;
-  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Cash-out history</h1><span class="subtle">Review, correct, reprint, or delete saved shifts.</span></div><button data-action="load-all">Load all history</button></div><div class="toolbar"><select id="filter-employee"><option value="">All employees</option>${Object.entries(roster).map(([id, e]) => `<option value="${esc(id)}" ${filterEmployee === id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select><input id="filter-date" type="date" value="${filterDate}"><button data-action="clear-filters">Clear filters</button></div><section class="card table-wrap"><p class="subtle">${records.length} loaded · ${filtered.length} matching shifts.</p>${filtered.length ? `<table><thead><tr><th>Employee / date</th><th>Review status</th><th>Hours</th><th>Total pay</th><th>Cash owed</th><th></th></tr></thead><tbody>${filtered.map((r) => { const s = current(r), t = totals(s), status = reviewState(r.id); return `<tr><td><strong>${esc(s.employeeName)}</strong><br><span class="subtle">${roleName(shiftRole(s))} · ${date(s.start)}${r.corrections ? " · Corrected" : ""}</span></td><td>${reviewBadge(r.id)}</td><td>${hours(t.minutes)}</td><td><strong>${money(t.total)}</strong></td><td>${shiftRole(s) === "driver" ? money(cashTotals(s).owed) : "—"}</td><td><div class="row"><button data-action="detail" data-id="${r.id}">View</button>${status === "reviewed" ? '<span class="review-check" aria-label="Reviewed">✓</span>' : ""}</div></td></tr>`; }).join("")}</tbody></table>` : '<div class="empty">No cash-outs found.</div>'}</section>${flowHistory}`;
+  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Cash-out history</h1><span class="subtle">Review, correct, reprint, or delete saved shifts.</span></div><button data-action="load-all">Load all history</button></div><div class="toolbar"><select id="filter-employee"><option value="">All employees</option>${Object.entries(roster).map(([id, e]) => `<option value="${esc(id)}" ${filterEmployee === id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select><input id="filter-date" type="date" value="${filterDate}"><button data-action="clear-filters">Clear filters</button></div><section class="card table-wrap"><p class="subtle">${records.length} loaded · ${filtered.length} matching shifts.</p>${filtered.length ? `<table><thead><tr><th>Employee / date</th><th>Review status</th><th>Driver cash</th><th>Hours</th><th>Total pay</th><th>Cash owed</th><th></th></tr></thead><tbody>${filtered.map((r) => { const s = current(r), t = totals(s), status = reviewState(r.id); return `<tr><td><strong>${esc(s.employeeName)}</strong><br><span class="subtle">${roleName(shiftRole(s))} · ${date(s.start)}${r.corrections ? " · Corrected" : ""}</span></td><td>${reviewBadge(r.id)}</td><td>${cashFlowBadge(s)}</td><td>${hours(t.minutes)}</td><td><strong>${money(t.total)}</strong></td><td>${shiftRole(s) === "driver" ? money(cashTotals(s).owed) : "—"}</td><td><div class="row"><button data-action="detail" data-id="${r.id}">View</button>${status === "reviewed" ? '<span class="review-check" aria-label="Reviewed">✓</span>' : ""}</div></td></tr>`; }).join("")}</tbody></table>` : '<div class="empty">No cash-outs found.</div>'}</section>${flowHistory}`;
 }
 
 function employeeView() {
@@ -498,7 +525,7 @@ function detailView() {
   const itemized = shiftRole(s) === "driver" ? `<h2>Itemized entries</h2>${items("Delivery fees", s.deliveries)}${items("Tips", s.tips)}${items("Tips Online", s.onlineTips)}${cashItems(s)}` : "";
   const shiftDay = localInput(s.start).slice(0, 10);
   const relatedFlows = cashFlows.filter((entry) => entry.employeeId === s.employeeId && entry.date === shiftDay);
-  const flowAudit = shiftRole(s) === "driver" ? `<section class="card"><h2>Driver cash-flow history</h2><p class="subtle">Cash recorded in Store Cash for ${esc(shiftDay)}. The cash-out saved ${money(s.startingCashCents || 0)} as starting cash.</p>${relatedFlows.length ? relatedFlows.map((entry) => `<div class="flow-audit"><div><strong>${money(entry.amountCents)} taken</strong><span>${time(entry.createdAt)}</span></div>${Object.values(entry.returns || {}).sort((a, b) => a.returnedAt - b.returnedAt).map((item) => `<div class="flow-return"><strong>+ ${money(item.amountCents)} put back</strong><span>${time(item.returnedAt)}</span></div>`).join("")}<div class="flow-balance"><span>Remaining</span><strong>${money(cashFlowNet(entry))}</strong></div></div>`).join("") : '<div class="empty">No Store Cash flow records found for this driver and date.</div>'}</section>` : "";
+  const flowAudit = shiftRole(s) === "driver" ? `<section class="card"><div class="row"><h2>Driver cash-flow history</h2>${cashFlowBadge(s)}</div><p class="subtle">Cash recorded in Store Cash for ${esc(shiftDay)}. The cash-out saved ${money(s.startingCashCents || 0)} as starting cash.</p>${relatedFlows.length ? relatedFlows.map((entry) => `<div class="flow-audit"><div><strong>${money(entry.amountCents)} taken</strong><span>${time(entry.createdAt)}</span></div>${Object.values(entry.returns || {}).sort((a, b) => a.returnedAt - b.returnedAt).map((item) => `<div class="flow-return"><strong>+ ${money(item.amountCents)} put back</strong><span>${time(item.returnedAt)}</span></div>`).join("")}<div class="flow-balance"><span>Remaining</span><strong>${money(cashFlowNet(entry))}</strong></div></div>`).join("") : '<div class="empty">No Store Cash flow records found for this driver and date.</div>'}</section>` : "";
   return `<div class="detail"><button data-action="back-history">← Back to history</button><h1 style="margin-top:20px">Shift record</h1><div class="row"><span class="subtle">${esc(s.employeeName)} · ${roleName(shiftRole(s))} · ${date(s.start)}</span><div class="row"><button data-action="edit">Correct</button><button class="primary" data-action="print">Reprint</button><button data-action="delete-shift">Delete shift</button></div></div><section class="card"><h2>Payment review</h2>${reviewActions}</section>${receipt(selected)}${flowAudit}<section class="card">${itemized}<details><summary>Original record & correction history</summary><p class="subtle">Original submission: ${new Date(selected.createdAt).toLocaleString()}</p>${receipt({ ...selected, corrections: undefined })}${Object.values(selected.corrections || {}).sort((a, b) => b.editedAt - a.editedAt).map((c) => `<details><summary>${new Date(c.editedAt).toLocaleString()} · ${esc(c.reason)}</summary>${receipt({ ...c, id: selected!.id, createdBy: selected!.createdBy, createdAt: selected!.createdAt })}</details>`).join("")}</details></section></div>`;
 }
 
@@ -545,7 +572,16 @@ function render() {
   }
   if (view === "inventory" && admin) root.querySelector("main")?.insertAdjacentHTML("beforeend", inventoryView());
   if (view === "cashout" && draft.employeeId && !editId) {
-    root.querySelector("#employee")?.parentElement?.insertAdjacentHTML("beforeend", '<p class="draft-saved">✓ Today’s progress is saved automatically on this computer.</p>');
+    const draftNote = submittedDraftId
+      ? `✓ This cash-out is saved. You can view it here until ${time(submittedDraftEnd)}`
+      : "✓ Today’s progress is saved automatically on this computer.";
+    root.querySelector("#employee")?.parentElement?.insertAdjacentHTML("beforeend", `<p class="draft-saved">${draftNote}</p>`);
+  }
+  if (view === "cashout" && submittedDraftId && !editId) {
+    root.querySelectorAll<HTMLInputElement>('[data-draft]:not(#employee)').forEach((input) => (input.disabled = true));
+    root.querySelectorAll<HTMLButtonElement>('[data-action="done"], [data-action="remove"], [data-action="edit-list-entry"], [data-action="save"]').forEach((button) => (button.disabled = true));
+    const saveButton = root.querySelector<HTMLButtonElement>('[data-action="save"]');
+    if (saveButton) saveButton.textContent = "Cash-out already saved";
   }
   const startingCashInput = view === "cashout" && cashoutRole === "driver" ? root.querySelector<HTMLInputElement>('#startingCash') : null;
   if (startingCashInput) {
@@ -974,6 +1010,8 @@ root.addEventListener("click", (event) => {
         draft = fresh();
         editingListEntry = null;
         confirmed = emptyConfirmed();
+        submittedDraftId = "";
+        submittedDraftEnd = 0;
         pending = null;
         break;
       case "back-history": [records, reviews] = await Promise.all([store.history(), store.getReviews()]); view = "history"; break;
@@ -1005,6 +1043,7 @@ root.addEventListener("click", (event) => {
         pending = null; break;
       }
       case "save": {
+        if (submittedDraftId && !editId) throw new Error("This cash-out has already been saved.");
         confirmed = { deliveries: true, tips: true, onlineTips: true, cashDeliveries: true };
         const s = shift(); validateShift(s);
         if (editId) {
@@ -1013,13 +1052,31 @@ root.addEventListener("click", (event) => {
           records = await store.history(); selected = records.find((r) => r.id === editId) || null; editId = ""; view = "detail";
         } else {
           pending ||= { ...s, id: crypto.randomUUID(), createdBy: store.uid(), createdAt: Date.now() };
-          await store.save(pending); selected = structuredClone(pending); view = "saved"; pending = null;
-          removeDraftProgress(s.employeeId);
+          await store.save(pending);
+          selected = structuredClone(pending);
+          markDraftSubmitted(s.employeeId, pending.id, s.end);
+          if (shiftRole(s) === "driver" && (s.startingCashCents || 0) > 0) {
+            const returned = window.confirm("Did you return the cash flow to the register?");
+            if (returned) {
+              const openFlows = cashFlows.filter((entry) => entry.date === today() && entry.employeeId === s.employeeId && cashFlowNet(entry) > 0);
+              await Promise.all(openFlows.map((entry) => store.returnCashFlow(entry.id, {
+                amountCents: cashFlowNet(entry), returnedAt: Date.now(), returnedBy: store.uid(),
+              })));
+              cashFlows = await store.getCashFlows();
+              message = "Cash-out saved and the cash flow was returned to the register.";
+              success = true;
+            } else {
+              message = Date.now() <= s.end
+                ? "Cash-out saved. The cash flow remains with the driver during this shift."
+                : "Cash-out saved. The cash flow is flagged as not returned.";
+            }
+          }
+          view = "saved"; pending = null;
         }
         draft = fresh(); editingListEntry = null; Object.keys(entryInputs).forEach((key) => delete entryInputs[key]); confirmed = emptyConfirmed(); break;
       }
       case "print": print(); break;
-      case "new": selected = null; draft = fresh(); editingListEntry = null; confirmed = emptyConfirmed(); [roster, rates] = await Promise.all([store.roster(), store.getRates()]); view = "cashout"; break;
+      case "new": selected = null; draft = fresh(); editingListEntry = null; confirmed = emptyConfirmed(); submittedDraftId = ""; submittedDraftEnd = 0; [roster, rates, cashFlows] = await Promise.all([store.roster(), store.getRates(), store.getCashFlows()]); view = "cashout"; break;
       case "demo-login": await store.login(""); await afterLogin(); break;
       case "demo-device-login": view = deviceTarget; message = "Demo computer authorized."; success = true; break;
       case "edit-employee": editingEmployeeId = button.dataset.id!; break;
@@ -1088,7 +1145,7 @@ setInterval(() => {
   if (activeDraftDay !== today()) {
     activeDraftDay = today();
     localStorage.removeItem(draftStorageKey);
-    draft = fresh(); confirmed = emptyConfirmed(); editingListEntry = null; pending = null;
+    draft = fresh(); confirmed = emptyConfirmed(); editingListEntry = null; pending = null; submittedDraftId = ""; submittedDraftEnd = 0;
     Object.keys(entryInputs).forEach((key) => delete entryInputs[key]);
     if (view === "cashout") render();
   }

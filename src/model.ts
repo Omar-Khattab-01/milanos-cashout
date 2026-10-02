@@ -373,5 +373,8 @@ export function localInput(time: number) {
     .toISOString()
     .slice(0, 16);
 }
+export function cashoutAvailableOn(cashout: Cashout, day: string) {
+  return localInput(current(cashout).end).slice(0, 10) >= day;
+}
 export const hours = (minutes: number) =>
   `${Math.floor(minutes / 60)}h ${Math.round(minutes % 60)}m`;

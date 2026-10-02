@@ -253,7 +253,7 @@
     "activeCashouts": {
       "$employeeId": {
         ".read": "auth != null && (root.child('devices').child(auth.uid).val() === true || root.child('admins').child(auth.uid).val() === true)",
-        ".write": "auth != null && (root.child('admins').child(auth.uid).val() === true || (root.child('devices').child(auth.uid).val() === true && newData.exists() && newData.child('createdBy').val() === auth.uid && !data.exists()))",
+        ".write": "auth != null && (root.child('admins').child(auth.uid).val() === true || (root.child('devices').child(auth.uid).val() === true && newData.exists() && newData.child('createdBy').val() === auth.uid && (!data.exists() || (data.child('createdBy').val() === auth.uid && newData.child('date').val() > data.child('date').val()))))",
         ".validate": "!newData.exists() || (newData.hasChildren(['recordId','employeeId','date','end','createdBy','updatedAt']) && newData.child('employeeId').val() === $employeeId && root.child('cashouts').child(newData.child('recordId').val()).exists() && root.child('cashouts').child(newData.child('recordId').val()).child('employeeId').val() === $employeeId && root.child('cashouts').child(newData.child('recordId').val()).child('createdBy').val() === newData.child('createdBy').val())",
         "recordId": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 100" },
         "employeeId": { ".validate": "newData.isString()" },

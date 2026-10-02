@@ -6,6 +6,7 @@ import {
   cashFlowNet,
   cashFlowReturned,
   cashTotals,
+  cashoutAvailableOn,
   billNumber,
   totals,
   current,
@@ -23,6 +24,19 @@ const shift: Shift = {
   tips: { a: 225, b: 375 },
 };
 describe("cash-out accounting", () => {
+  it("keeps an overnight cash-out recoverable through its end day only", () => {
+    const cashout: Cashout = {
+      ...shift,
+      start: new Date("2026-09-30T17:00:00").getTime(),
+      end: new Date("2026-10-01T01:00:00").getTime(),
+      id: "month-boundary",
+      createdBy: "kiosk",
+      createdAt: 1,
+    };
+    expect(cashoutAvailableOn(cashout, "2026-09-30")).toBe(true);
+    expect(cashoutAvailableOn(cashout, "2026-10-01")).toBe(true);
+    expect(cashoutAvailableOn(cashout, "2026-10-02")).toBe(false);
+  });
   it("keeps cash-flow withdrawals and returns auditable", () => {
     const flow = {
       id: "flow", employeeId: "driver", employeeName: "Alex", date: "2026-09-27",

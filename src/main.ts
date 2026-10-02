@@ -1,7 +1,7 @@
 import "./style.css";
 import * as store from "./store";
 import {
-  amountOf, billNumber, billOf, cashCents, cashFlowNet, cashFlowReturned, cashTotals, cents, current, hours,
+  amountOf, billNumber, billOf, cashCents, cashFlowNet, cashFlowReturned, cashTotals, cashoutAvailableOn, cents, current, hours,
   localInput, money, salesCents, storeCashAmount, total, totals, validateShift,
   type CashDelivery, type CashFlowEntry, type Cashout, type CashoutReview, type Company, type Employee,
   type DailySales, type EmployeeRole, type EntryList, type Expense, type InventoryItem, type InventoryTag, type InventoryTargetType, type OpeningHours, type ReviewStatus,
@@ -157,29 +157,27 @@ function removeSubmittedDraft(employeeId: string, recordId: string) {
 async function restoreDraftProgress(employeeId: string) {
   const drafts = readDraftProgress();
   let saved: SavedCashoutDraft | undefined = drafts[employeeId];
+  const linkedRecord = employeeId ? await store.getActiveCashout(employeeId) : null;
+  const activeRecord = linkedRecord && cashoutAvailableOn(linkedRecord, today()) ? linkedRecord : null;
   if (saved?.submittedId) {
-    const record = await store.getActiveCashout(employeeId);
-    if (!record || record.id !== saved.submittedId) {
+    if (!activeRecord || activeRecord.id !== saved.submittedId) {
       delete drafts[employeeId]; writeDraftProgress(drafts); saved = undefined;
     } else {
-      const activeShift = current(record);
+      const activeShift = current(activeRecord);
       saved = { ...saved, role: shiftRole(activeShift), draft: draftFromShift(activeShift), submittedEnd: activeShift.end };
       drafts[employeeId] = saved; writeDraftProgress(drafts);
     }
   }
-  if (!saved && employeeId) {
-    const record = await store.getActiveCashout(employeeId);
-    if (record) {
-      const activeShift = current(record);
+  if (!saved && activeRecord) {
+      const activeShift = current(activeRecord);
       if (shiftRole(activeShift) === cashoutRole) {
         saved = {
           role: cashoutRole, draft: draftFromShift(activeShift),
           confirmed: { deliveries: true, tips: true, onlineTips: true, cashDeliveries: true },
-          entryInputs: {}, savedAt: Date.now(), submittedId: record.id, submittedEnd: activeShift.end,
+          entryInputs: {}, savedAt: Date.now(), submittedId: activeRecord.id, submittedEnd: activeShift.end,
         };
         drafts[employeeId] = saved; writeDraftProgress(drafts);
       }
-    }
   }
   const next = saved?.role === cashoutRole ? structuredClone(saved.draft) : fresh();
   next.employeeId = employeeId;

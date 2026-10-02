@@ -273,6 +273,11 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
         ...activeCorrection,
         employeeName: "Other",
       }));
+      const nextRecord = { ...activeRecord, id: "next-shift" };
+      await assertSucceeds(set(ref(db("kiosk"), "cashouts/next-shift"), nextRecord));
+      await assertFails(set(ref(db("kiosk"), "activeCashouts/alex"), { ...activeLink, recordId: "next-shift" }));
+      await assertFails(set(ref(db("kiosk"), "activeCashouts/alex"), { ...activeLink, recordId: "next-shift", date: "2026-09-26" }));
+      await assertSucceeds(set(ref(db("kiosk"), "activeCashouts/alex"), { ...activeLink, recordId: "next-shift", date: "2026-09-28", updatedAt: Date.now() }));
       await assertSucceeds(remove(ref(db("admin"), "activeCashouts/alex")));
       await assertFails(set(ref(db("kiosk"), "cashouts/active-shift/corrections/closed"), activeCorrection));
       await assertSucceeds(set(ref(db("admin"), "activeCashouts/alex"), activeLink));

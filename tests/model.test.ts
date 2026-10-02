@@ -24,18 +24,17 @@ const shift: Shift = {
   tips: { a: 225, b: 375 },
 };
 describe("cash-out accounting", () => {
-  it("keeps an overnight cash-out recoverable through its end day only", () => {
+  it("expires a saved cash-out after its shift date", () => {
     const cashout: Cashout = {
       ...shift,
       start: new Date("2026-09-30T17:00:00").getTime(),
-      end: new Date("2026-10-01T01:00:00").getTime(),
+      end: new Date("2026-09-30T21:00:00").getTime(),
       id: "month-boundary",
       createdBy: "kiosk",
       createdAt: 1,
     };
     expect(cashoutAvailableOn(cashout, "2026-09-30")).toBe(true);
-    expect(cashoutAvailableOn(cashout, "2026-10-01")).toBe(true);
-    expect(cashoutAvailableOn(cashout, "2026-10-02")).toBe(false);
+    expect(cashoutAvailableOn(cashout, "2026-10-01")).toBe(false);
   });
   it("keeps cash-flow withdrawals and returns auditable", () => {
     const flow = {
@@ -77,7 +76,7 @@ describe("cash-out accounting", () => {
     expect(storeCashAmount(entry)).toBe(0);
     expect(entry.amountCents).toBe(3000);
   });
-  it("calculates overnight hours, wages, and every entry", () => {
+  it("calculates same-day hours, wages, and every entry", () => {
     validateShift(shift);
     expect(totals(shift)).toEqual({
       minutes: 510,
@@ -109,6 +108,13 @@ describe("cash-out accounting", () => {
       NaN,
     ])
       expect(() => validateShift({ ...shift, end })).toThrow();
+  });
+  it("rejects a shift that crosses into another Toronto calendar date", () => {
+    expect(() => validateShift({
+      ...shift,
+      start: Date.parse("2026-08-01T23:00:00-04:00"),
+      end: Date.parse("2026-08-02T01:00:00-04:00"),
+    })).toThrow("same shift date");
   });
   it("rejects corrupted monetary entries", () =>
     expect(() => validateShift({ ...shift, tips: { a: -50 } })).toThrow());

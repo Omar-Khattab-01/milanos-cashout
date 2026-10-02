@@ -132,10 +132,11 @@ function saveDraftProgress() {
 }
 
 function draftFromShift(shift: Shift) {
+  const shiftDate = localInput(shift.start).slice(0, 10);
   return {
     employeeId: shift.employeeId,
-    startDate: localInput(shift.start).slice(0, 10),
-    endDate: localInput(shift.end).slice(0, 10),
+    startDate: shiftDate,
+    endDate: shiftDate,
     start: localInput(shift.start).slice(11, 16),
     end: localInput(shift.end).slice(11, 16),
     deliveries: structuredClone(shift.deliveries || {}),
@@ -244,7 +245,7 @@ function shift(): Shift {
     employeeName: existing?.employeeName || roster[draft.employeeId]?.name || "",
     employeeRole: role,
     start: new Date(`${draft.startDate}T${draft.start}`).getTime(),
-    end: new Date(`${draft.endDate}T${draft.end}`).getTime(),
+    end: new Date(`${draft.startDate}T${draft.end}`).getTime(),
     rateCents: existing?.rateCents || rates[role],
     ...(role === "driver" ? {
       deliveries: { ...draft.deliveries }, tips: { ...draft.tips }, onlineTips: { ...draft.onlineTips },
@@ -263,7 +264,7 @@ function receipt(record: Cashout) {
   const s = current(record), t = totals(s), cash = cashTotals(s), role = shiftRole(s);
   const driverTotals = role === "driver" ? `<dt>Delivery fees</dt><dd>${money(t.deliveries)}</dd><dt>Tips</dt><dd>${money(t.tips + t.cashTips)}</dd><dt>Tips Online</dt><dd>${money(t.onlineTips)}</dd>` : "";
   const driverCash = role === "driver" ? `<hr><dl><dt>Starting cash</dt><dd>${money(cash.startingCash)}</dd><dt>Cash bill totals</dt><dd>${money(cash.billTotals)}</dd><dt>Cash owed to store</dt><dd>${money(cash.owed)}</dd></dl><p style="font-size:11px">Earnings paid separately</p>` : "";
-  return `<div class="receipt"><h2>MILANO’S PIZZERIA</h2><p>${roleName(role).toUpperCase()} CASH-OUT</p><hr><dl><dt>Employee</dt><dd>${esc(s.employeeName)}</dd><dt>Role</dt><dd>${roleName(role)}</dd><dt>Shift date</dt><dd>${date(s.start)}</dd><dt>Started</dt><dd>${time(s.start)}</dd><dt>Ended</dt><dd>${date(s.end) !== date(s.start) ? date(s.end) + " " : ""}${time(s.end)}</dd><dt>Hours</dt><dd>${hours(t.minutes)}</dd></dl><hr><dl><dt>Hourly pay</dt><dd>${money(t.wages)}</dd>${driverTotals}</dl><div class="grand"><span>Total pay</span><strong>${money(t.total)}</strong></div>${driverCash}<p style="font-size:10px">${esc(record.id.slice(0, 8).toUpperCase())}${record.corrections ? " · CORRECTED" : ""}${store.demo ? " · DEMO — NOT A PAYROLL RECORD" : ""}</p></div>`;
+  return `<div class="receipt"><h2>MILANO’S PIZZERIA</h2><p>${roleName(role).toUpperCase()} CASH-OUT</p><hr><dl><dt>Employee</dt><dd>${esc(s.employeeName)}</dd><dt>Role</dt><dd>${roleName(role)}</dd><dt>Shift date</dt><dd>${date(s.start)}</dd><dt>Started</dt><dd>${time(s.start)}</dd><dt>Ended</dt><dd>${time(s.end)}</dd><dt>Hours</dt><dd>${hours(t.minutes)}</dd></dl><hr><dl><dt>Hourly pay</dt><dd>${money(t.wages)}</dd>${driverTotals}</dl><div class="grand"><span>Total pay</span><strong>${money(t.total)}</strong></div>${driverCash}<p style="font-size:10px">${esc(record.id.slice(0, 8).toUpperCase())}${record.corrections ? " · CORRECTED" : ""}${store.demo ? " · DEMO — NOT A PAYROLL RECORD" : ""}</p></div>`;
 }
 
 function entryField(kind: ListKind, name: string, label: string, placeholder: string, moneyField = false, required = true) {
@@ -293,7 +294,7 @@ function cashout() {
   const employees = Object.entries(roster).filter(([id, employee]) =>
     (employee.active !== false && employeeRole(employee) === role) || id === draft.employeeId,
   );
-  const shiftCard = `<section class="card"><div class="section-head"><span class="step">1</span><div><h2>Your shift</h2><span class="subtle">Choose your name and shift times.</span></div></div><div class="fields"><div class="full"><label for="employee">${roleName(role)} name</label><select id="employee" data-draft="employeeId" ${editId ? "disabled" : ""}><option value="">Select your name</option>${employees.map(([id, employee]) => `<option value="${esc(id)}" ${draft.employeeId === id ? "selected" : ""}>${esc(employee.name)}</option>`).join("")}</select>${!employees.length ? `<p class="subtle">An admin needs to add a ${role} employee first.</p>` : ""}</div><div><label for="start">Start time</label><input id="start" type="time" data-draft="start" value="${esc(draft.start)}"></div><div><label for="end">End time</label><input id="end" type="time" data-draft="end" value="${esc(draft.end)}"></div></div><p class="subtle">Start date: ${esc(draft.startDate)} · End date: ${esc(draft.endDate)}<br>Fill this in at the end of your shift.</p><details class="date-options"><summary>Change dates / overnight shift</summary><div class="fields"><div><label for="startDate">Start date</label><input id="startDate" type="date" data-draft="startDate" value="${esc(draft.startDate)}"></div><div><label for="endDate">End date</label><input id="endDate" type="date" data-draft="endDate" value="${esc(draft.endDate)}"></div></div></details></section>`;
+  const shiftCard = `<section class="card"><div class="section-head"><span class="step">1</span><div><h2>Your shift</h2><span class="subtle">Choose your name and shift times.</span></div></div><div class="fields"><div class="full"><label for="employee">${roleName(role)} name</label><select id="employee" data-draft="employeeId" ${editId ? "disabled" : ""}><option value="">Select your name</option>${employees.map(([id, employee]) => `<option value="${esc(id)}" ${draft.employeeId === id ? "selected" : ""}>${esc(employee.name)}</option>`).join("")}</select>${!employees.length ? `<p class="subtle">An admin needs to add a ${role} employee first.</p>` : ""}</div><div><label for="start">Start time</label><input id="start" type="time" data-draft="start" value="${esc(draft.start)}"></div><div><label for="end">End time</label><input id="end" type="time" data-draft="end" value="${esc(draft.end)}"></div></div><p class="subtle">Shift date: ${esc(draft.startDate)}<br>Fill this in at the end of your shift.</p><details class="date-options"><summary>Change date</summary><div><label for="startDate">Shift date</label><input id="startDate" type="date" data-draft="startDate" value="${esc(draft.startDate)}"></div></details></section>`;
   const driverSections = role === "driver" ? `${entrySection("tips", "Tips", 2)}${entrySection("onlineTips", "Tips Online", 3)}${cashSection()}` : "";
   const correction = editId ? `<section class="card"><label for="reason">Reason for correction</label><input id="reason" data-reason value="${esc(reason)}" maxlength="500" placeholder="Explain what changed and why"><p class="subtle">The original shift and every correction are retained.</p></section>` : "";
   const driverSummary = role === "driver" ? `<div class="summary-line"><span class="subtle">Delivery fees</span><strong>${money(t.deliveries)}</strong></div><div class="summary-line"><span class="subtle">Tips</span><strong>${money(t.tips + t.cashTips)}</strong></div><div class="summary-line"><span class="subtle">Tips Online</span><strong>${money(t.onlineTips)}</strong></div>` : "";
@@ -742,7 +743,7 @@ async function afterLogin() {
 root.addEventListener("input", (event) => {
   const el = event.target as HTMLInputElement;
   if (el.dataset.draft && el.dataset.draft !== "employeeId") {
-    if (el.dataset.draft === "startDate" || el.dataset.draft === "endDate") customDates = true;
+    if (el.dataset.draft === "startDate") { customDates = true; draft.endDate = el.value; }
     (draft as unknown as Record<string, unknown>)[el.dataset.draft] = el.value;
     pending = null;
     saveDraftProgress();
@@ -776,7 +777,7 @@ root.addEventListener("change", (event) => {
     return;
   }
   if (el.dataset.draft) {
-    if (el.dataset.draft === "startDate" || el.dataset.draft === "endDate") customDates = true;
+    if (el.dataset.draft === "startDate") { customDates = true; draft.endDate = el.value; }
     (draft as unknown as Record<string, unknown>)[el.dataset.draft] = el.value;
     if (el.dataset.draft === "employeeId" && cashoutRole === "driver" && !editId) {
       const startingCash = cashFlows.reduce((sum, entry) => sum + (entry.date === today() && entry.employeeId === el.value ? cashFlowNet(entry) : 0), 0);
@@ -1237,7 +1238,7 @@ root.addEventListener("click", (event) => {
         if (!selected) return;
         const s = current(selected); editId = selected.id;
         cashoutRole = shiftRole(s);
-        draft = { employeeId: s.employeeId, startDate: localInput(s.start).slice(0, 10), endDate: localInput(s.end).slice(0, 10), start: localInput(s.start).slice(11), end: localInput(s.end).slice(11), deliveries: { ...s.deliveries }, tips: { ...s.tips }, onlineTips: { ...s.onlineTips }, startingCash: ((s.startingCashCents || 0) / 100).toFixed(2), cashDeliveries: { ...s.cashDeliveries } };
+        draft = { employeeId: s.employeeId, startDate: localInput(s.start).slice(0, 10), endDate: localInput(s.start).slice(0, 10), start: localInput(s.start).slice(11), end: localInput(s.end).slice(11), deliveries: { ...s.deliveries }, tips: { ...s.tips }, onlineTips: { ...s.onlineTips }, startingCash: ((s.startingCashCents || 0) / 100).toFixed(2), cashDeliveries: { ...s.cashDeliveries } };
         confirmed = { deliveries: true, tips: true, onlineTips: true, cashDeliveries: true }; reason = ""; view = "cashout"; break;
       }
       case "cancel-edit": editId = ""; draft = fresh(); editingListEntry = null; confirmed = emptyConfirmed(); view = "detail"; break;

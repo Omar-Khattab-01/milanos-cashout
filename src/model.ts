@@ -282,8 +282,11 @@ export function validateShift(s: Shift) {
     s.end - s.start > 24 * 3600000
   )
     throw new Error(
-      "Enter a shift longer than zero and no longer than 24 hours. Check the end date for overnight shifts.",
+      "Enter an end time later than the start time on the same date.",
     );
+
+  if (businessDate(s.start) !== businessDate(s.end))
+    throw new Error("The start and end time must be on the same shift date.");
 
   if (s.start > Date.now())
     throw new Error("The shift start cannot be in the future.");
@@ -373,6 +376,16 @@ export function localInput(time: number) {
   return new Date(time - date.getTimezoneOffset() * 60000)
     .toISOString()
     .slice(0, 16);
+}
+export function businessDate(time: number) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Toronto",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(time));
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
 }
 export function cashoutAvailableOn(cashout: Cashout, day: string) {
   return localInput(current(cashout).end).slice(0, 10) >= day;

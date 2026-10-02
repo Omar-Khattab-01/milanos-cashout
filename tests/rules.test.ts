@@ -62,6 +62,7 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
             alex: { name: "Alex", active: true, role: "driver" },
             chris: { name: "Chris", role: "cook" },
             casey: { name: "Casey", role: "cashier" },
+            morgan: { name: "Morgan", roles: { driver: true, cashier: true } },
           },
           settings: { rateCents: 1300 },
         });
@@ -190,6 +191,62 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
         }),
       );
     });
+    it("supports multiple positions and enforces the rate for the cash-out position", async () => {
+      await set(ref(db("admin"), "settings/cashierRateCents"), 1500);
+      await assertSucceeds(set(ref(db("kiosk"), "cashouts/morgan-driver"), {
+        ...record,
+        id: "morgan-driver",
+        employeeId: "morgan",
+        employeeName: "Morgan",
+      }));
+      await assertSucceeds(set(ref(db("kiosk"), "cashouts/morgan-cashier"), {
+        ...record,
+        id: "morgan-cashier",
+        employeeId: "morgan",
+        employeeName: "Morgan",
+        employeeRole: "cashier",
+        rateCents: 1500,
+        deliveries: null,
+        tips: null,
+      }));
+      const pointer = {
+        employeeId: "morgan",
+        date: "2026-10-02",
+        end,
+        createdBy: "kiosk",
+        updatedAt: Date.now(),
+      };
+      await assertSucceeds(set(ref(db("kiosk"), "activeCashouts/morgan__driver"), {
+        ...pointer,
+        recordId: "morgan-driver",
+        employeeRole: "driver",
+      }));
+      await assertSucceeds(set(ref(db("kiosk"), "activeCashouts/morgan__cashier"), {
+        ...pointer,
+        recordId: "morgan-cashier",
+        employeeRole: "cashier",
+      }));
+      expect((await get(ref(db("kiosk"), "activeCashouts/morgan__driver/recordId"))).val()).toBe("morgan-driver");
+      expect((await get(ref(db("kiosk"), "activeCashouts/morgan__cashier/recordId"))).val()).toBe("morgan-cashier");
+      await assertFails(set(ref(db("kiosk"), "cashouts/morgan-wrong-rate"), {
+        ...record,
+        id: "morgan-wrong-rate",
+        employeeId: "morgan",
+        employeeName: "Morgan",
+        employeeRole: "cashier",
+        deliveries: null,
+        tips: null,
+      }));
+      await assertFails(set(ref(db("kiosk"), "cashouts/morgan-cook"), {
+        ...record,
+        id: "morgan-cook",
+        employeeId: "morgan",
+        employeeName: "Morgan",
+        employeeRole: "cook",
+        deliveries: null,
+        tips: null,
+      }));
+    });
     it("rejects name spoofing, invalid durations and injected corrections", async () => {
       await assertFails(
         set(ref(db("kiosk"), "cashouts/shift"), {
@@ -252,18 +309,19 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       const activeLink = {
         recordId: "active-shift",
         employeeId: "alex",
+        employeeRole: "driver",
         date: "2026-09-27",
         end: activeEnd,
         createdBy: "kiosk",
         updatedAt: Date.now(),
       };
-      await assertSucceeds(set(ref(db("kiosk"), "activeCashouts/alex"), activeLink));
-      await assertSucceeds(get(ref(db("kiosk"), "activeCashouts/alex")));
-      await assertFails(get(ref(db("stranger"), "activeCashouts/alex")));
-      await assertFails(set(ref(db("kiosk"), "activeCashouts/chris"), { ...activeLink, employeeId: "chris" }));
+      await assertSucceeds(set(ref(db("kiosk"), "activeCashouts/alex__driver"), activeLink));
+      await assertSucceeds(get(ref(db("kiosk"), "activeCashouts/alex__driver")));
+      await assertFails(get(ref(db("stranger"), "activeCashouts/alex__driver")));
+      await assertFails(set(ref(db("kiosk"), "activeCashouts/chris__driver"), { ...activeLink, employeeId: "chris" }));
       await assertSucceeds(set(ref(db("kiosk"), "cashouts/active-shift/corrections/employee-update"), activeCorrection));
       await assertSucceeds(set(ref(db("admin"), "devices/other-kiosk"), true));
-      await assertFails(set(ref(db("other-kiosk"), "activeCashouts/alex"), { ...activeLink, createdBy: "other-kiosk" }));
+      await assertFails(set(ref(db("other-kiosk"), "activeCashouts/alex__driver"), { ...activeLink, createdBy: "other-kiosk" }));
       await assertSucceeds(get(ref(db("other-kiosk"), "cashouts/active-shift")));
       await assertSucceeds(set(ref(db("other-kiosk"), "cashouts/active-shift/corrections/other-device"), {
         ...activeCorrection,
@@ -275,15 +333,15 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       }));
       const nextRecord = { ...activeRecord, id: "next-shift" };
       await assertSucceeds(set(ref(db("kiosk"), "cashouts/next-shift"), nextRecord));
-      await assertFails(set(ref(db("kiosk"), "activeCashouts/alex"), { ...activeLink, recordId: "next-shift" }));
-      await assertFails(set(ref(db("kiosk"), "activeCashouts/alex"), { ...activeLink, recordId: "next-shift", date: "2026-09-26" }));
-      await assertSucceeds(set(ref(db("kiosk"), "activeCashouts/alex"), { ...activeLink, recordId: "next-shift", date: "2026-09-28", updatedAt: Date.now() }));
-      await assertSucceeds(remove(ref(db("admin"), "activeCashouts/alex")));
+      await assertFails(set(ref(db("kiosk"), "activeCashouts/alex__driver"), { ...activeLink, recordId: "next-shift" }));
+      await assertFails(set(ref(db("kiosk"), "activeCashouts/alex__driver"), { ...activeLink, recordId: "next-shift", date: "2026-09-26" }));
+      await assertSucceeds(set(ref(db("kiosk"), "activeCashouts/alex__driver"), { ...activeLink, recordId: "next-shift", date: "2026-09-28", updatedAt: Date.now() }));
+      await assertSucceeds(remove(ref(db("admin"), "activeCashouts/alex__driver")));
       await assertFails(set(ref(db("kiosk"), "cashouts/active-shift/corrections/closed"), activeCorrection));
-      await assertSucceeds(set(ref(db("admin"), "activeCashouts/alex"), activeLink));
+      await assertSucceeds(set(ref(db("admin"), "activeCashouts/alex__driver"), activeLink));
       await assertSucceeds(update(ref(db("admin")), {
         "cashouts/active-shift": null,
-        "activeCashouts/alex": null,
+        "activeCashouts/alex__driver": null,
       }));
     });
     it("validates online tips and cash-delivery fields server-side", async () => {
@@ -357,6 +415,7 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
         set(ref(db("admin"), "employees/alex"), {
           name: "Alex Morgan",
           phone: "416-555-0101",
+          roles: { driver: true, cook: true },
         }),
       );
       expect((await get(ref(db("admin"), "employees/alex/phone"))).val()).toBe(

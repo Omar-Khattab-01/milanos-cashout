@@ -3,6 +3,7 @@ export type Employee = {
   name: string;
   phone?: string;
   role?: EmployeeRole; // Employees created before roles were added are drivers.
+  roles?: Partial<Record<EmployeeRole, true>>;
   active?: boolean;
 };
 export type BillEntry = {
@@ -146,6 +147,7 @@ export type Cashout = Shift & {
 export type ActiveCashoutLink = {
   recordId: string;
   employeeId: string;
+  employeeRole: EmployeeRole;
   date: string;
   end: number;
   createdBy: string;

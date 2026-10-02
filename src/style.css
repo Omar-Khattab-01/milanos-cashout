@@ -410,6 +410,37 @@ td {
   padding: 16px 0;
   border-bottom: 1px solid var(--line);
 }
+.position-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+  padding: 0;
+  border: 0;
+}
+.position-choices legend {
+  width: 100%;
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.position-choices label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8faf7;
+  cursor: pointer;
+}
+.position-choices input[type="checkbox"] {
+  width: 18px;
+  min-height: 18px;
+  margin: 0;
+  accent-color: var(--green);
+}
 .avatar {
   border-radius: 50%;
   width: 38px;

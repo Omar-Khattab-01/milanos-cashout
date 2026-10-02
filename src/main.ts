@@ -97,6 +97,7 @@ type SavedCashoutDraft = {
   submittedEnd?: number;
 };
 const draftStorageKey = "milanos-cashout-drafts-v1";
+const employeeDraftKey = (employeeId: string, role: EmployeeRole) => `${employeeId}__${role}`;
 let activeDraftDay = today();
 
 function readDraftProgress(): Record<string, SavedCashoutDraft> {
@@ -120,7 +121,7 @@ function writeDraftProgress(drafts: Record<string, SavedCashoutDraft>) {
 function saveDraftProgress() {
   if (editId || !draft.employeeId || activeDraftDay !== today()) return;
   const drafts = readDraftProgress();
-  drafts[draft.employeeId] = {
+  drafts[employeeDraftKey(draft.employeeId, cashoutRole)] = {
     role: cashoutRole,
     draft: structuredClone(draft),
     confirmed: structuredClone(confirmed),
@@ -149,24 +150,25 @@ function draftFromShift(shift: Shift) {
 
 function removeSubmittedDraft(employeeId: string, recordId: string) {
   const drafts = readDraftProgress();
-  if (drafts[employeeId]?.submittedId === recordId) {
-    delete drafts[employeeId];
-    writeDraftProgress(drafts);
-  }
+  let changed = false;
+  for (const [key, saved] of Object.entries(drafts)) if ((key === employeeId || key.startsWith(`${employeeId}__`)) && saved.submittedId === recordId) { delete drafts[key]; changed = true; }
+  if (changed) writeDraftProgress(drafts);
 }
 
 async function restoreDraftProgress(employeeId: string) {
   const drafts = readDraftProgress();
-  let saved: SavedCashoutDraft | undefined = drafts[employeeId];
-  const linkedRecord = employeeId ? await store.getActiveCashout(employeeId) : null;
+  const key = employeeDraftKey(employeeId, cashoutRole);
+  let saved: SavedCashoutDraft | undefined = drafts[key] || (drafts[employeeId]?.role === cashoutRole ? drafts[employeeId] : undefined);
+  if (saved && drafts[employeeId] === saved) { drafts[key] = saved; delete drafts[employeeId]; writeDraftProgress(drafts); }
+  const linkedRecord = employeeId ? await store.getActiveCashout(employeeId, cashoutRole) : null;
   const activeRecord = linkedRecord && cashoutAvailableOn(linkedRecord, today()) ? linkedRecord : null;
   if (saved?.submittedId) {
     if (!activeRecord || activeRecord.id !== saved.submittedId) {
-      delete drafts[employeeId]; writeDraftProgress(drafts); saved = undefined;
+      delete drafts[key]; writeDraftProgress(drafts); saved = undefined;
     } else {
       const activeShift = current(activeRecord);
       saved = { ...saved, role: shiftRole(activeShift), draft: draftFromShift(activeShift), submittedEnd: activeShift.end };
-      drafts[employeeId] = saved; writeDraftProgress(drafts);
+      drafts[key] = saved; writeDraftProgress(drafts);
     }
   }
   if (!saved && activeRecord) {
@@ -177,7 +179,7 @@ async function restoreDraftProgress(employeeId: string) {
           confirmed: { deliveries: true, tips: true, onlineTips: true, cashDeliveries: true },
           entryInputs: {}, savedAt: Date.now(), submittedId: activeRecord.id, submittedEnd: activeShift.end,
         };
-        drafts[employeeId] = saved; writeDraftProgress(drafts);
+        drafts[key] = saved; writeDraftProgress(drafts);
       }
   }
   const next = saved?.role === cashoutRole ? structuredClone(saved.draft) : fresh();
@@ -199,7 +201,7 @@ async function restoreDraftProgress(employeeId: string) {
 function markDraftSubmitted(employeeId: string, recordId: string, end: number) {
   submittedDraftId = recordId; submittedDraftEnd = end;
   const drafts = readDraftProgress();
-  drafts[employeeId] = {
+  drafts[employeeDraftKey(employeeId, cashoutRole)] = {
     role: cashoutRole,
     draft: structuredClone(draft),
     confirmed: { deliveries: true, tips: true, onlineTips: true, cashDeliveries: true },
@@ -257,7 +259,14 @@ function shift(): Shift {
 }
 
 const roleName = (role: EmployeeRole) => role[0].toUpperCase() + role.slice(1);
-const employeeRole = (employee: Employee): EmployeeRole => employee.role || "driver";
+const employeeRoleOptions: EmployeeRole[] = ["driver", "cook", "cashier"];
+const employeeRoles = (employee: Employee): EmployeeRole[] => {
+  const roles = employeeRoleOptions.filter((role) => employee.roles?.[role] === true);
+  return roles.length ? roles : [employee.role || "driver"];
+};
+const employeeRole = (employee: Employee): EmployeeRole => employeeRoles(employee)[0];
+const employeeHasRole = (employee: Employee, role: EmployeeRole) => employeeRoles(employee).includes(role);
+const employeeRoleNames = (employee: Employee) => employeeRoles(employee).map(roleName).join(", ");
 const shiftRole = (value: Shift): EmployeeRole => value.employeeRole || "driver";
 
 function receipt(record: Cashout) {
@@ -292,7 +301,7 @@ function cashout() {
   const role = shiftRole(s);
   const tabs = !editId ? `<div class="toolbar role-tabs">${(["driver", "cook", "cashier"] as EmployeeRole[]).map((item) => `<button data-action="cashout-role" data-role="${item}" class="${cashoutRole === item ? "active" : ""}">${roleName(item)}</button>`).join("")}</div>` : "";
   const employees = Object.entries(roster).filter(([id, employee]) =>
-    (employee.active !== false && employeeRole(employee) === role) || id === draft.employeeId,
+    (employee.active !== false && employeeHasRole(employee, role)) || id === draft.employeeId,
   );
   const shiftCard = `<section class="card"><div class="section-head"><span class="step">1</span><div><h2>Your shift</h2><span class="subtle">Choose your name and shift times.</span></div></div><div class="fields"><div class="full"><label for="employee">${roleName(role)} name</label><select id="employee" data-draft="employeeId" ${editId ? "disabled" : ""}><option value="">Select your name</option>${employees.map(([id, employee]) => `<option value="${esc(id)}" ${draft.employeeId === id ? "selected" : ""}>${esc(employee.name)}</option>`).join("")}</select>${!employees.length ? `<p class="subtle">An admin needs to add a ${role} employee first.</p>` : ""}</div><div><label for="start">Start time</label><input id="start" type="time" data-draft="start" value="${esc(draft.start)}"></div><div><label for="end">End time</label><input id="end" type="time" data-draft="end" value="${esc(draft.end)}"></div></div><p class="subtle">Shift date: ${esc(draft.startDate)}<br>Fill this in at the end of your shift.</p><details class="date-options"><summary>Change date</summary><div><label for="startDate">Shift date</label><input id="startDate" type="date" data-draft="startDate" value="${esc(draft.startDate)}"></div></details></section>`;
   const driverSections = role === "driver" ? `${entrySection("tips", "Tips", 2)}${entrySection("onlineTips", "Tips Online", 3)}${cashSection()}` : "";
@@ -322,7 +331,7 @@ function storeCashView() {
   const totalCashFlow = dayFlows.reduce((sum, entry) => sum + cashFlowNet(entry), 0);
   const openingCash = registerCash[day]?.openingCashCents || 0;
   const expectedCash = openingCash + totalReceived - totalCashFlow;
-  const drivers = Object.entries(roster).filter(([, employee]) => employee.active !== false && employeeRole(employee) === "driver");
+  const drivers = Object.entries(roster).filter(([, employee]) => employee.active !== false && employeeHasRole(employee, "driver"));
   const editing = entries.find((entry) => entry.id === editingStoreCashId);
   const form = editing
     ? `<h2>Correct cash amount</h2><p class="subtle">Bill ${esc(editing.billNumber || "Not recorded")} · The original amount remains in the audit history.</p><form data-form="store-cash-edit" data-id="${editing.id}"><label for="store-cash-edit-amount">Corrected amount received</label><input id="store-cash-edit-amount" name="amount" inputmode="decimal" value="${(storeCashAmount(editing) / 100).toFixed(2)}" autocomplete="off" required autofocus><div class="row" style="margin-top:16px"><button class="primary" type="submit">Save correction</button><button type="button" data-action="cancel-store-cash-edit">Cancel</button></div></form>`
@@ -363,12 +372,13 @@ function historyView() {
 }
 
 function employeeView() {
+  const positionChoices = (employee?: Employee) => `<fieldset class="position-choices"><legend>Positions</legend>${employeeRoleOptions.map((role) => `<label><input type="checkbox" name="roles" value="${role}" ${!employee ? role === "driver" ? "checked" : "" : employeeHasRole(employee, role) ? "checked" : ""}> <span>${roleName(role)}</span></label>`).join("")}</fieldset>`;
   const employeeRows = Object.entries(roster).map(([id, employee]) => {
     if (editingEmployeeId === id)
-      return `<form data-form="employee-edit" data-id="${id}" class="employee"><div style="flex:1"><label for="edit-name-${id}">Employee name</label><input id="edit-name-${id}" name="name" value="${esc(employee.name)}" maxlength="80" required><label for="edit-phone-${id}">Phone number</label><input id="edit-phone-${id}" name="phone" type="tel" value="${esc(employee.phone || "")}" placeholder="Phone number" maxlength="30" required><label for="edit-role-${id}">Role</label><select id="edit-role-${id}" name="role" required>${(["driver", "cook", "cashier"] as EmployeeRole[]).map((role) => `<option value="${role}" ${employeeRole(employee) === role ? "selected" : ""}>${roleName(role)}</option>`).join("")}</select></div><div><button class="primary" type="submit">Save</button><button type="button" data-action="cancel-employee-edit">Cancel</button></div></form>`;
-    return `<div class="employee"><div class="row"><span class="avatar">${esc(employee.name[0])}</span><div><strong>${esc(employee.name)}</strong><br><span class="subtle">${roleName(employeeRole(employee))} · ${esc(employee.phone || "No phone number")}</span></div></div><div class="row"><button data-action="edit-employee" data-id="${id}">Edit</button><button data-action="delete-employee" data-id="${id}">Delete</button></div></div>`;
+      return `<form data-form="employee-edit" data-id="${id}" class="employee"><div style="flex:1"><label for="edit-name-${id}">Employee name</label><input id="edit-name-${id}" name="name" value="${esc(employee.name)}" maxlength="80" required><label for="edit-phone-${id}">Phone number</label><input id="edit-phone-${id}" name="phone" type="tel" value="${esc(employee.phone || "")}" placeholder="Phone number" maxlength="30" required>${positionChoices(employee)}</div><div><button class="primary" type="submit">Save</button><button type="button" data-action="cancel-employee-edit">Cancel</button></div></form>`;
+    return `<div class="employee"><div class="row"><span class="avatar">${esc(employee.name[0])}</span><div><strong>${esc(employee.name)}</strong><br><span class="subtle">${esc(employeeRoleNames(employee))} · ${esc(employee.phone || "No phone number")}</span></div></div><div class="row"><button data-action="edit-employee" data-id="${id}">Edit</button><button data-action="delete-employee" data-id="${id}">Delete</button></div></div>`;
   }).join("");
-  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Employees & pay</h1><span class="subtle">Assign each employee as a driver, cook, or cashier.</span></div></div><div class="split"><section class="card"><h2>Employees</h2>${employeeRows || '<p class="subtle">No employees yet.</p>'}<form data-form="employee" style="margin-top:24px"><label for="name">Add employee</label><div class="fields"><div><input id="name" name="name" placeholder="Full name" maxlength="80" required></div><div><input id="phone" name="phone" type="tel" placeholder="Phone number" maxlength="30" required></div><div class="full"><select name="role" aria-label="Employee role" required><option value="driver">Driver</option><option value="cook">Cook</option><option value="cashier">Cashier</option></select></div></div><button class="primary" type="submit">Add employee</button></form><p class="subtle">Deleting removes the employee from the cash-out list. Saved shift history remains.</p></section><section class="card"><h2>Store computer</h2><p class="subtle">Authorize this computer once so employees can use it without signing in.</p><button data-action="authorize-device">Authorize this store computer</button><hr style="border:0;border-top:1px solid var(--line);margin:24px 0"><h2>Hourly pay rates</h2><p class="subtle">Set one rate for each role. Saved shifts keep their original rate.</p><form data-form="rates"><label for="driver-rate">Driver</label><input id="driver-rate" name="driver" inputmode="decimal" value="${(rates.driver / 100).toFixed(2)}" required><label for="cook-rate">Cook</label><input id="cook-rate" name="cook" inputmode="decimal" value="${(rates.cook / 100).toFixed(2)}" required><label for="cashier-rate">Cashier</label><input id="cashier-rate" name="cashier" inputmode="decimal" value="${(rates.cashier / 100).toFixed(2)}" required><button type="submit" class="primary wide">Save hourly rates</button></form></section></div>`;
+  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Employees & pay</h1><span class="subtle">Assign one or more positions to each employee.</span></div></div><div class="split"><section class="card"><h2>Employees</h2>${employeeRows || '<p class="subtle">No employees yet.</p>'}<form data-form="employee" style="margin-top:24px"><label for="name">Add employee</label><div class="fields"><div><input id="name" name="name" placeholder="Full name" maxlength="80" required></div><div><input id="phone" name="phone" type="tel" placeholder="Phone number" maxlength="30" required></div><div class="full">${positionChoices()}</div></div><button class="primary" type="submit">Add employee</button></form><p class="subtle">An employee can appear in multiple cash-out positions. Their shift uses the hourly rate for the position they cash out under.</p><p class="subtle">Deleting removes the employee from the cash-out list. Saved shift history remains.</p></section><section class="card"><h2>Store computer</h2><p class="subtle">Authorize this computer once so employees can use it without signing in.</p><button data-action="authorize-device">Authorize this store computer</button><hr style="border:0;border-top:1px solid var(--line);margin:24px 0"><h2>Hourly pay rates</h2><p class="subtle">Set one rate for each position. The selected cash-out position determines the rate.</p><form data-form="rates"><label for="driver-rate">Driver</label><input id="driver-rate" name="driver" inputmode="decimal" value="${(rates.driver / 100).toFixed(2)}" required><label for="cook-rate">Cook</label><input id="cook-rate" name="cook" inputmode="decimal" value="${(rates.cook / 100).toFixed(2)}" required><label for="cashier-rate">Cashier</label><input id="cashier-rate" name="cashier" inputmode="decimal" value="${(rates.cashier / 100).toFixed(2)}" required><button type="submit" class="primary wide">Save hourly rates</button></form></section></div>`;
 }
 
 function dailySalesView() {
@@ -565,13 +575,13 @@ const scheduleUrl = (week = scheduleWeek) => `${location.origin}${location.pathn
 
 function professionalScheduleView() {
   const allEmployees = Object.entries(roster).filter(([, employee]) => employee.active !== false).sort((a, b) => a[1].name.localeCompare(b[1].name));
-  const employees = allEmployees.filter(([, employee]) => scheduleRoleFilter === "all" || employeeRole(employee) === scheduleRoleFilter);
+  const employees = allEmployees.filter(([, employee]) => scheduleRoleFilter === "all" || employeeHasRole(employee, scheduleRoleFilter));
   const shifts = Object.values(scheduledShifts);
   const visibleShiftCount = shifts.filter((item) => employees.some(([id]) => id === item.employeeId)).length;
   const publishedMatches = publishedSchedule && JSON.stringify(publishedSchedule.shifts) === JSON.stringify(scheduledShifts) && JSON.stringify(publishedSchedule.openingHours) === JSON.stringify(openingHours);
   const editorShift = scheduleEditor?.shiftId ? scheduledShifts[scheduleEditor.shiftId] : null;
   const editorEmployee = scheduleEditor ? roster[scheduleEditor.employeeId] : null;
-  const editor = scheduleEditor && editorEmployee ? `<section class="schedule-editor card"><div><div class="eyebrow">${editorShift ? "Edit shift" : "New shift"}</div><h2>${esc(editorEmployee.name)}</h2><p class="subtle">${new Date(`${scheduleEditor.date}T12:00:00`).toLocaleDateString("en-CA", { weekday: "long", month: "long", day: "numeric" })} · ${roleName(employeeRole(editorEmployee))}</p></div><form data-form="schedule-shift" data-shift-id="${esc(editorShift?.id || "")}"><input type="hidden" name="employeeId" value="${esc(scheduleEditor.employeeId)}"><input type="hidden" name="date" value="${esc(scheduleEditor.date)}"><div><label for="schedule-start">Starts</label><input id="schedule-start" name="start" type="time" value="${esc(editorShift?.start || "")}" required autofocus></div><div><label for="schedule-end">Ends</label><input id="schedule-end" name="end" type="time" value="${esc(editorShift?.end || "")}" required></div><button class="primary" type="submit">${editorShift ? "Save changes" : "Add shift"}</button><button type="button" data-action="cancel-schedule-editor">Cancel</button>${editorShift ? `<button type="button" class="danger-text" data-action="delete-schedule-shift" data-id="${editorShift.id}">Delete</button>` : ""}</form></section>` : "";
+  const editor = scheduleEditor && editorEmployee ? `<section class="schedule-editor card"><div><div class="eyebrow">${editorShift ? "Edit shift" : "New shift"}</div><h2>${esc(editorEmployee.name)}</h2><p class="subtle">${new Date(`${scheduleEditor.date}T12:00:00`).toLocaleDateString("en-CA", { weekday: "long", month: "long", day: "numeric" })} · ${esc(employeeRoleNames(editorEmployee))}</p></div><form data-form="schedule-shift" data-shift-id="${esc(editorShift?.id || "")}"><input type="hidden" name="employeeId" value="${esc(scheduleEditor.employeeId)}"><input type="hidden" name="date" value="${esc(scheduleEditor.date)}"><div><label for="schedule-position">Position</label><select id="schedule-position" name="employeeRole" required>${employeeRoles(editorEmployee).map((role) => `<option value="${role}" ${editorShift?.employeeRole === role ? "selected" : ""}>${roleName(role)}</option>`).join("")}</select></div><div><label for="schedule-start">Starts</label><input id="schedule-start" name="start" type="time" value="${esc(editorShift?.start || "")}" required autofocus></div><div><label for="schedule-end">Ends</label><input id="schedule-end" name="end" type="time" value="${esc(editorShift?.end || "")}" required></div><button class="primary" type="submit">${editorShift ? "Save changes" : "Add shift"}</button><button type="button" data-action="cancel-schedule-editor">Cancel</button>${editorShift ? `<button type="button" class="danger-text" data-action="delete-schedule-shift" data-id="${editorShift.id}">Delete</button>` : ""}</form></section>` : "";
   const headers = scheduleDays.map((day, index) => {
     const dateValue = addDays(scheduleWeek, index), hoursValue = openingHours[day];
     return `<div class="roster-day-head ${dateValue === today() ? "today" : ""}"><strong>${dayNames[index].slice(0, 3)}</strong><span>${shortScheduleDate(dateValue)}</span><small>${!hoursValue || hoursValue.closed ? "Closed" : `${clock(hoursValue.open)}–${clock(hoursValue.close)}`}</small></div>`;
@@ -584,7 +594,7 @@ function professionalScheduleView() {
       const cellShifts = employeeShifts.filter((item) => item.date === dateValue).sort((a, b) => a.start.localeCompare(b.start));
       return `<div class="roster-cell ${dateValue === today() ? "today" : ""}">${cellShifts.map((item) => `<button class="roster-shift role-${item.employeeRole}" data-action="edit-schedule-shift" data-id="${item.id}"><strong>${clock(item.start)}</strong><span>to ${clock(item.end)}</span></button>`).join("")}<button class="add-shift-cell" data-action="schedule-cell" data-employee-id="${id}" data-date="${dateValue}" aria-label="Add ${esc(employee.name)} on ${dayNames[index]}">+</button></div>`;
     }).join("");
-    return `<div class="roster-row"><div class="roster-person"><span class="avatar">${esc(employee.name[0])}</span><div><strong>${esc(employee.name)}</strong><span>${roleName(employeeRole(employee))}</span><small>${hours(totalMinutes)}</small></div></div>${cells}</div>`;
+    return `<div class="roster-row"><div class="roster-person"><span class="avatar">${esc(employee.name[0])}</span><div><strong>${esc(employee.name)}</strong><span>${esc(employeeRoleNames(employee))}</span><small>${hours(totalMinutes)}</small></div></div>${cells}</div>`;
   }).join("");
   const filters = (["all", "driver", "cook", "cashier"] as const).map((role) => `<button data-action="schedule-filter" data-role="${role}" class="${scheduleRoleFilter === role ? "active" : ""}">${role === "all" ? "All staff" : roleName(role)}</button>`).join("");
   const hoursRows = scheduleDays.map((day, index) => { const value = openingHours[day]; return `<div class="hours-row"><strong>${dayNames[index]}</strong><label class="closed-toggle"><input type="checkbox" name="${day}-closed" ${value?.closed ? "checked" : ""}> Closed</label><input type="time" name="${day}-open" value="${value?.open || "11:00"}" aria-label="${dayNames[index]} opening time"><span>to</span><input type="time" name="${day}-close" value="${value?.close || "22:00"}" aria-label="${dayNames[index]} closing time"></div>`; }).join("");
@@ -837,23 +847,25 @@ root.addEventListener("submit", (event) => {
         break;
       case "employee": {
         const name = String(data.get("name")).trim(), phone = String(data.get("phone")).trim();
-        const role = String(data.get("role")) as EmployeeRole;
+        const selectedRoles = data.getAll("roles").map(String).filter((role): role is EmployeeRole => employeeRoleOptions.includes(role as EmployeeRole));
         if (!name) throw new Error("Enter an employee name.");
         if (!phone) throw new Error("Enter the employee’s phone number.");
         if (Object.values(roster).some((e) => e.name.toLowerCase() === name.toLowerCase())) throw new Error("An employee with that name already exists.");
-        if (!["driver", "cook", "cashier"].includes(role)) throw new Error("Select an employee role.");
-        await store.saveEmployee(crypto.randomUUID(), { name, phone, role }); roster = await store.roster();
+        if (!selectedRoles.length || selectedRoles.length !== data.getAll("roles").length) throw new Error("Select at least one valid employee position.");
+        const roles = Object.fromEntries(selectedRoles.map((role) => [role, true])) as Partial<Record<EmployeeRole, true>>;
+        await store.saveEmployee(crypto.randomUUID(), { name, phone, roles }); roster = await store.roster();
         message = "Employee added."; success = true; break;
       }
       case "employee-edit": {
         const id = form.dataset.id!;
         const name = String(data.get("name")).trim(), phone = String(data.get("phone")).trim();
-        const role = String(data.get("role")) as EmployeeRole;
+        const selectedRoles = data.getAll("roles").map(String).filter((role): role is EmployeeRole => employeeRoleOptions.includes(role as EmployeeRole));
         if (!name) throw new Error("Enter an employee name.");
         if (!phone) throw new Error("Enter the employee’s phone number.");
         if (Object.entries(roster).some(([otherId, employee]) => otherId !== id && employee.name.toLowerCase() === name.toLowerCase())) throw new Error("An employee with that name already exists.");
-        if (!["driver", "cook", "cashier"].includes(role)) throw new Error("Select an employee role.");
-        await store.saveEmployee(id, { ...roster[id], name, phone, role });
+        if (!selectedRoles.length || selectedRoles.length !== data.getAll("roles").length) throw new Error("Select at least one valid employee position.");
+        const roles = Object.fromEntries(selectedRoles.map((role) => [role, true])) as Partial<Record<EmployeeRole, true>>;
+        await store.saveEmployee(id, { name, phone, roles, ...(roster[id].active === undefined ? {} : { active: roster[id].active }) });
         roster = await store.roster(); editingEmployeeId = "";
         message = "Employee updated."; success = true; break;
       }
@@ -927,7 +939,9 @@ root.addEventListener("submit", (event) => {
       case "schedule-shift": {
         const employeeId = String(data.get("employeeId")), employee = roster[employeeId];
         const shiftDate = String(data.get("date")), start = String(data.get("start")), end = String(data.get("end"));
+        const scheduledRole = String(data.get("employeeRole")) as EmployeeRole;
         if (!employee || employee.active === false) throw new Error("Select an active employee.");
+        if (!employeeRoleOptions.includes(scheduledRole) || !employeeHasRole(employee, scheduledRole)) throw new Error("Select one of this employee’s assigned positions.");
         if (!scheduleDays.some((_, index) => addDays(scheduleWeek, index) === shiftDate)) throw new Error("Select a day in the displayed week.");
         if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(start) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(end) || start === end) throw new Error("Enter a valid shift start and end time.");
         const minutes = (value: string) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
@@ -941,7 +955,7 @@ root.addEventListener("submit", (event) => {
           return nextStart < existingEnd && existingStart < nextEnd;
         })) throw new Error("That employee already has an overlapping shift on this day.");
         const existing = editingId ? scheduledShifts[editingId] : null;
-        const item: ScheduledShift = { id: editingId || crypto.randomUUID(), employeeId, employeeName: employee.name, employeeRole: employeeRole(employee), date: shiftDate, start, end, createdAt: existing?.createdAt || Date.now(), createdBy: existing?.createdBy || store.uid() };
+        const item: ScheduledShift = { id: editingId || crypto.randomUUID(), employeeId, employeeName: employee.name, employeeRole: scheduledRole, date: shiftDate, start, end, createdAt: existing?.createdAt || Date.now(), createdBy: existing?.createdBy || store.uid() };
         await store.saveScheduledShift(scheduleWeek, item); scheduledShifts = await store.getSchedule(scheduleWeek);
         scheduleEditor = null;
         message = existing ? `${employee.name}’s shift updated.` : `${employee.name} added to ${dayNames[scheduleDays.findIndex((_, index) => addDays(scheduleWeek, index) === shiftDate)]}.`; success = true; break;
@@ -1164,7 +1178,7 @@ root.addEventListener("click", (event) => {
           await store.save(pending);
           await store.saveActiveCashout({
             recordId: pending.id, employeeId: s.employeeId, date: localInput(s.start).slice(0, 10),
-            end: s.end, createdBy: store.uid(), updatedAt: Date.now(),
+            employeeRole: shiftRole(s), end: s.end, createdBy: store.uid(), updatedAt: Date.now(),
           });
           selected = structuredClone(pending);
           markDraftSubmitted(s.employeeId, pending.id, s.end);
@@ -1190,7 +1204,7 @@ root.addEventListener("click", (event) => {
         await store.setReview(selected.id, button.dataset.status as ReviewStatus);
         if (button.dataset.status === "reviewed") {
           const reviewedShift = current(selected);
-          await store.closeActiveCashout(reviewedShift.employeeId, selected.id);
+          await store.closeActiveCashout(reviewedShift.employeeId, shiftRole(reviewedShift), selected.id);
           removeSubmittedDraft(reviewedShift.employeeId, selected.id);
         }
         reviews = await store.getReviews();
@@ -1214,7 +1228,7 @@ root.addEventListener("click", (event) => {
         if (!selected || !window.confirm(`Permanently delete ${current(selected).employeeName}’s shift from ${date(current(selected).start)}?`)) return;
         {
           const deleted = current(selected), deletedId = selected.id;
-          await store.deleteShift(deletedId, deleted.employeeId);
+          await store.deleteShift(deletedId, deleted.employeeId, shiftRole(deleted));
           removeSubmittedDraft(deleted.employeeId, deletedId);
           records = await store.history(); selected = null; view = "history"; message = "Shift deleted."; success = true;
         }

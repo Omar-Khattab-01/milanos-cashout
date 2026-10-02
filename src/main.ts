@@ -25,7 +25,7 @@ type EntryKind = "deliveries" | "tips" | "onlineTips";
 type ListKind = EntryKind | "cashDeliveries";
 type ProtectedView = "history" | "employees" | "expenses" | "inventory" | "schedule";
 type DeviceView = "cashout" | "store-cash";
-type ExpenseTab = "overview" | "sales" | "suppliers" | "payroll" | "settings";
+type ExpenseTab = "overview" | "sales" | "suppliers" | "operating" | "payroll" | "settings";
 
 let roster: Record<string, Employee> = {};
 let rates: Record<EmployeeRole, number> = { driver: 1300, cook: 1300, cashier: 1300 };
@@ -416,18 +416,25 @@ function expensesView() {
 
 function organizedExpensesView() {
   const monthExpenses = expenses.filter((entry) => entry.date.startsWith(expenseMonth));
+  const foodExpenses = monthExpenses.filter((entry) => entry.costType !== "operating");
+  const otherExpenses = monthExpenses.filter((entry) => entry.costType === "operating");
   const monthShifts = records.filter((record) => localInput(current(record).start).startsWith(expenseMonth));
   const monthSales = Object.values(dailySales).filter((entry) => entry.date.startsWith(expenseMonth));
-  const foodCost = monthExpenses.reduce((sum, entry) => sum + entry.amountCents, 0);
+  const foodCost = foodExpenses.reduce((sum, entry) => sum + entry.amountCents, 0);
+  const otherCost = otherExpenses.reduce((sum, entry) => sum + entry.amountCents, 0);
   const employeeCost = monthShifts.reduce((sum, record) => sum + totals(current(record)).wages, 0);
   const employeeDeliveryCost = monthShifts.reduce((sum, record) => {
     const shift = current(record);
     return sum + (shiftRole(shift) === "driver" ? totals(shift).deliveries : 0);
   }, 0);
   const recordedSales = monthSales.reduce((sum, entry) => sum + entry.pcSalesCents + entry.onlineOrdersCents, 0);
-  const operatingCosts = foodCost + employeeCost + employeeDeliveryCost + monthlyRentCents;
+  const operatingCosts = foodCost + otherCost + employeeCost + employeeDeliveryCost + monthlyRentCents;
   const amountLeft = recordedSales - operatingCosts;
-  const byCompany = monthExpenses.reduce<Record<string, number>>((result, entry) => {
+  const byCompany = foodExpenses.reduce<Record<string, number>>((result, entry) => {
+    result[entry.companyName] = (result[entry.companyName] || 0) + entry.amountCents;
+    return result;
+  }, {});
+  const otherByCompany = otherExpenses.reduce<Record<string, number>>((result, entry) => {
     result[entry.companyName] = (result[entry.companyName] || 0) + entry.amountCents;
     return result;
   }, {});
@@ -443,29 +450,33 @@ function organizedExpensesView() {
   }, {});
   const deliveryTotal = employeeDeliveryCost;
   const tipTotal = Object.values(payroll).reduce((sum, row) => sum + row.tips, 0);
-  const chartMax = Math.max(recordedSales, operatingCosts, Math.abs(amountLeft), foodCost, employeeCost, employeeDeliveryCost, monthlyRentCents, 1);
+  const chartMax = Math.max(recordedSales, operatingCosts, Math.abs(amountLeft), foodCost, otherCost, employeeCost, employeeDeliveryCost, monthlyRentCents, 1);
   const chartBar = (label: string, amount: number, tone = "") => `<div class="chart-row"><div class="chart-label"><span>${label}</span><strong>${money(amount)}</strong></div><div class="chart-track"><span class="chart-fill ${tone}" style="width:${Math.max(2, Math.round((Math.abs(amount) / chartMax) * 100))}%"></span></div></div>`;
   const tabs = ([
     ["overview", "Overview"],
     ["sales", "Sales"],
-    ["suppliers", "Supplier Costs"],
+    ["suppliers", "Food Costs"],
+    ["operating", "Operating Expenses"],
     ["payroll", "Payroll"],
     ["settings", "Settings"],
   ] as [ExpenseTab, string][]).map(([id, label]) => `<button data-action="expense-tab" data-tab="${id}" class="${expenseTab === id ? "active" : ""}" aria-selected="${expenseTab === id}">${label}</button>`).join("");
 
-  const overview = `<div class="expense-grid"><section class="card"><div class="eyebrow">Monthly performance</div><h2>Money in and out</h2><div class="summary-line"><span>Recorded sales</span><strong>${money(recordedSales)}</strong></div><div class="summary-line"><span>Food cost</span><strong>${money(foodCost)}</strong></div><div class="summary-line"><span>Employee cost (hourly pay)</span><strong>${money(employeeCost)}</strong></div><div class="summary-line"><span>Employee cost (delivery pay)</span><strong>${money(employeeDeliveryCost)}</strong></div><div class="summary-line"><span>Fixed monthly rent</span><strong>${money(monthlyRentCents)}</strong></div><div class="summary-line total-line"><span>Total operating costs</span><strong>${money(operatingCosts)}</strong></div><div class="grand result-total ${amountLeft < 0 ? "negative" : "positive"}"><span>Amount left after tracked costs</span><strong>${money(amountLeft)}</strong></div><p class="subtle">Recorded sales − food costs − hourly employee pay − driver delivery pay − rent. Tips remain separate and are not deducted here.</p></section><section class="card chart-card"><div class="eyebrow">Cash flow</div><h2>Sales compared with costs</h2>${chartBar("Recorded sales", recordedSales, "income")}${chartBar("Operating costs", operatingCosts, "cost")}${chartBar("Amount left", amountLeft, amountLeft < 0 ? "loss" : "remaining")}</section></div><section class="card chart-card"><div class="row"><div><div class="eyebrow">Cost breakdown</div><h2>Where operating costs went</h2></div><span class="pill">${esc(expenseMonth)}</span></div>${chartBar("Food", foodCost, "food")}${chartBar("Hourly employee pay", employeeCost, "payroll")}${chartBar("Driver delivery pay", employeeDeliveryCost, "delivery")}${chartBar("Rent", monthlyRentCents, "rent")}</section>`;
+  const overview = `<div class="expense-grid"><section class="card"><div class="eyebrow">Monthly performance</div><h2>Money in and out</h2><div class="summary-line"><span>Recorded sales</span><strong>${money(recordedSales)}</strong></div><div class="summary-line"><span>Food cost</span><strong>${money(foodCost)}</strong></div><div class="summary-line"><span>Operating expenses</span><strong>${money(otherCost)}</strong></div><div class="summary-line"><span>Employee cost (hourly pay)</span><strong>${money(employeeCost)}</strong></div><div class="summary-line"><span>Employee cost (delivery pay)</span><strong>${money(employeeDeliveryCost)}</strong></div><div class="summary-line"><span>Fixed monthly rent</span><strong>${money(monthlyRentCents)}</strong></div><div class="summary-line total-line"><span>Total operating costs</span><strong>${money(operatingCosts)}</strong></div><div class="grand result-total ${amountLeft < 0 ? "negative" : "positive"}"><span>Amount left after tracked costs</span><strong>${money(amountLeft)}</strong></div><p class="subtle">Recorded sales − food costs − operating expenses − hourly employee pay − driver delivery pay − rent. Tips remain separate and are not deducted here.</p></section><section class="card chart-card"><div class="eyebrow">Cash flow</div><h2>Sales compared with costs</h2>${chartBar("Recorded sales", recordedSales, "income")}${chartBar("Operating costs", operatingCosts, "cost")}${chartBar("Amount left", amountLeft, amountLeft < 0 ? "loss" : "remaining")}</section></div><section class="card chart-card"><div class="row"><div><div class="eyebrow">Cost breakdown</div><h2>Where operating costs went</h2></div><span class="pill">${esc(expenseMonth)}</span></div>${chartBar("Food", foodCost, "food")}${chartBar("Operating expenses", otherCost, "cost")}${chartBar("Hourly employee pay", employeeCost, "payroll")}${chartBar("Driver delivery pay", employeeDeliveryCost, "delivery")}${chartBar("Rent", monthlyRentCents, "rent")}</section>`;
 
   const sales = dailySalesView()
     .replace("Month difference:", "Month unreconciled difference:")
     .replace("<th>Difference</th>", "<th>Unreconciled difference</th>")
     .replace("</p></div>", "</p><p class=\"subtle\"><strong>What it means:</strong> $0 is balanced. A positive amount means some sales are not matched to a recorded payment source. A negative amount means recorded payment sources are higher than sales.</p></div>");
 
-  const suppliers = `<div class="split"><section class="card"><h2>Add supplier company</h2><form data-form="company"><label for="company-name">Company name</label><div class="entry-input"><input id="company-name" name="name" maxlength="100" placeholder="Supplier name" required><button class="primary" type="submit">Add</button></div></form><h2 style="margin-top:28px">Add order expense</h2><form data-form="expense"><label for="expense-company">Company</label><select id="expense-company" name="companyId" required><option value="">Select company</option>${Object.entries(companies).sort((a, b) => a[1].name.localeCompare(b[1].name)).map(([id, company]) => `<option value="${esc(id)}">${esc(company.name)}</option>`).join("")}</select><label for="expense-date">Order date</label><input id="expense-date" name="date" type="date" value="${today()}" required><label for="expense-amount">Total ordered</label><input id="expense-amount" name="amount" inputmode="decimal" placeholder="0.00" required><button class="primary wide" type="submit">Save expense</button></form></section><section class="card"><h2>Food cost by company</h2>${Object.keys(byCompany).length ? Object.entries(byCompany).sort((a, b) => b[1] - a[1]).map(([name, amount]) => `<div class="summary-line"><span>${esc(name)}</span><strong>${money(amount)}</strong></div>`).join("") + `<div class="grand"><span>Total food cost</span><strong>${money(foodCost)}</strong></div>` : '<div class="empty">No supplier costs entered for this month.</div>'}</section></div><section class="card table-wrap"><h2>Supplier orders for ${esc(expenseMonth)}</h2>${monthExpenses.length ? `<table><thead><tr><th>Date</th><th>Company</th><th>Total</th><th></th></tr></thead><tbody>${monthExpenses.map((entry) => `<tr><td>${esc(entry.date)}</td><td>${esc(entry.companyName)}</td><td>${money(entry.amountCents)}</td><td><button data-action="delete-expense" data-id="${entry.id}">Delete</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No supplier orders entered for this month.</div>'}</section>`;
+  const companyOptions = Object.entries(companies).sort((a, b) => a[1].name.localeCompare(b[1].name)).map(([id, company]) => `<option value="${esc(id)}">${esc(company.name)}</option>`).join("");
+  const suppliers = `<div class="split"><section class="card"><h2>Add supplier company</h2><form data-form="company"><label for="company-name">Company name</label><div class="entry-input"><input id="company-name" name="name" maxlength="100" placeholder="Supplier name" required><button class="primary" type="submit">Add</button></div></form><h2 style="margin-top:28px">Add food order</h2><form data-form="expense"><input type="hidden" name="costType" value="food"><label for="expense-company">Food supplier</label><select id="expense-company" name="companyId" required><option value="">Select company</option>${companyOptions}</select><label for="expense-date">Order date</label><input id="expense-date" name="date" type="date" value="${today()}" required><label for="expense-amount">Total ordered</label><input id="expense-amount" name="amount" inputmode="decimal" placeholder="0.00" required><button class="primary wide" type="submit">Save food cost</button></form></section><section class="card"><h2>Food cost by company</h2>${Object.keys(byCompany).length ? Object.entries(byCompany).sort((a, b) => b[1] - a[1]).map(([name, amount]) => `<div class="summary-line"><span>${esc(name)}</span><strong>${money(amount)}</strong></div>`).join("") + `<div class="grand"><span>Total food cost</span><strong>${money(foodCost)}</strong></div>` : '<div class="empty">No food costs entered for this month.</div>'}</section></div><section class="card table-wrap"><h2>Food orders for ${esc(expenseMonth)}</h2>${foodExpenses.length ? `<table><thead><tr><th>Date</th><th>Company</th><th>Total</th><th></th></tr></thead><tbody>${foodExpenses.map((entry) => `<tr><td>${esc(entry.date)}</td><td>${esc(entry.companyName)}</td><td>${money(entry.amountCents)}</td><td><button data-action="delete-expense" data-id="${entry.id}">Delete</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No food orders entered for this month.</div>'}</section>`;
+
+  const operating = `<div class="split"><section class="card"><div class="eyebrow">Non-food business costs</div><h2>Add operating expense</h2><p class="subtle">Use this for cutlery, cleaning supplies, repairs, utilities, equipment, and other non-food purchases.</p><form data-form="expense"><input type="hidden" name="costType" value="operating"><label for="operating-company">Company</label><select id="operating-company" name="companyId" required><option value="">Select company</option>${companyOptions}</select><label for="operating-date">Expense date</label><input id="operating-date" name="date" type="date" value="${today()}" required><label for="operating-amount">Amount paid</label><input id="operating-amount" name="amount" inputmode="decimal" placeholder="0.00" required><button class="primary wide" type="submit">Save operating expense</button></form><h3 style="margin-top:28px">Add a new company</h3><form data-form="company"><div class="entry-input"><input name="name" maxlength="100" placeholder="Company name" aria-label="Company name" required><button class="primary" type="submit">Add</button></div></form></section><section class="card"><h2>Operating expenses by company</h2>${Object.keys(otherByCompany).length ? Object.entries(otherByCompany).sort((a, b) => b[1] - a[1]).map(([name, amount]) => `<div class="summary-line"><span>${esc(name)}</span><strong>${money(amount)}</strong></div>`).join("") + `<div class="grand"><span>Total operating expenses</span><strong>${money(otherCost)}</strong></div>` : '<div class="empty">No operating expenses entered for this month.</div>'}</section></div><section class="card table-wrap"><h2>Operating expenses for ${esc(expenseMonth)}</h2>${otherExpenses.length ? `<table><thead><tr><th>Date</th><th>Company</th><th>Total</th><th></th></tr></thead><tbody>${otherExpenses.map((entry) => `<tr><td>${esc(entry.date)}</td><td>${esc(entry.companyName)}</td><td>${money(entry.amountCents)}</td><td><button data-action="delete-expense" data-id="${entry.id}">Delete</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No operating expenses entered for this month.</div>'}</section>`;
 
   const payrollView = `<section class="card table-wrap"><div class="row"><div><h2>Employee pay for ${esc(expenseMonth)}</h2><p class="subtle">Hourly pay and driver delivery pay are included in operating costs. Tips remain separate.</p></div><span class="pill">Employee cost ${money(employeeCost + deliveryTotal)}</span></div>${Object.keys(payroll).length ? `<table><thead><tr><th>Employee</th><th>Role</th><th>Hourly pay</th><th>Delivery pay</th><th>Tips</th></tr></thead><tbody>${Object.values(payroll).sort((a, b) => a.name.localeCompare(b.name)).map((row) => `<tr><td><strong>${esc(row.name)}</strong></td><td>${roleName(row.role)}</td><td>${money(row.wages)}</td><td>${row.role === "driver" ? money(row.deliveries) : "—"}</td><td>${row.role === "driver" ? money(row.tips) : "—"}</td></tr>`).join("")}<tr><td colspan="2"><strong>Monthly totals</strong></td><td><strong>${money(employeeCost)}</strong></td><td><strong>${money(deliveryTotal)}</strong></td><td><strong>${money(tipTotal)}</strong></td></tr></tbody></table>` : '<div class="empty">No employee cash-outs for this month.</div>'}</section>`;
 
   const settings = `<section class="card settings-card"><div class="eyebrow">Expense settings</div><h2>Fixed monthly rent</h2><p class="subtle">This amount is automatically counted once in every month’s overview. Enter $0.00 if there is no rent to count.</p><form data-form="monthly-rent"><label for="monthly-rent">Rent paid each month</label><input id="monthly-rent" name="amount" inputmode="decimal" value="${(monthlyRentCents / 100).toFixed(2)}" required><button class="primary" type="submit">Save monthly rent</button></form></section>`;
-  const content: Record<ExpenseTab, string> = { overview, sales, suppliers, payroll: payrollView, settings };
+  const content: Record<ExpenseTab, string> = { overview, sales, suppliers, operating, payroll: payrollView, settings };
   return `<div class="intro expenses-intro"><div><div class="eyebrow">Management</div><h1>Business finances</h1><span class="subtle">Review sales, operating costs, and the amount left for each month.</span></div><label class="month-picker" for="expense-month"><span>Viewing month</span><input id="expense-month" type="month" value="${expenseMonth}"></label></div><nav class="expense-tabs" aria-label="Expense sections" role="tablist">${tabs}</nav><div class="expense-panel" role="tabpanel">${content[expenseTab]}</div>`;
 }
 
@@ -985,13 +996,15 @@ root.addEventListener("submit", (event) => {
       }
       case "expense": {
         const companyId = String(data.get("companyId")), company = companies[companyId], expenseDate = String(data.get("date"));
+        const costType = String(data.get("costType") || "food") as "food" | "operating";
         if (!company) throw new Error("Select a company.");
+        if (costType !== "food" && costType !== "operating") throw new Error("Select a valid expense category.");
         if (!/^\d{4}-\d{2}-\d{2}$/.test(expenseDate)) throw new Error("Enter the order date.");
         const amountCents = salesCents(String(data.get("amount")));
         if (amountCents <= 0) throw new Error("Enter an order total greater than zero.");
-        await store.saveExpense({ id: crypto.randomUUID(), companyId, companyName: company.name, date: expenseDate, amountCents, createdAt: Date.now(), createdBy: store.uid() });
+        await store.saveExpense({ id: crypto.randomUUID(), companyId, companyName: company.name, date: expenseDate, amountCents, costType, createdAt: Date.now(), createdBy: store.uid() });
         expenses = await store.getExpenses(); expenseMonth = expenseDate.slice(0, 7);
-        message = "Order expense saved."; success = true; break;
+        message = costType === "food" ? "Food cost saved." : "Operating expense saved."; success = true; break;
       }
     }
   }).then(() => {

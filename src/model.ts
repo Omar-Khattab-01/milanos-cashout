@@ -41,6 +41,7 @@ export type Expense = {
   companyName: string;
   date: string;
   amountCents: number;
+  costType?: "food" | "operating"; // Older records without a type are food costs.
   createdAt: number;
   createdBy: string;
 };

@@ -74,6 +74,7 @@
         "companyName": { ".validate": "newData.isString() && newData.val() === root.child('companies').child(newData.parent().child('companyId').val()).child('name').val()" },
         "date": { ".validate": "newData.isString() && newData.val().matches(/^\\d{4}-\\d{2}-\\d{2}$/)" },
         "amountCents": { ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 1 && newData.val() <= 10000000" },
+        "costType": { ".validate": "newData.val() === 'food' || newData.val() === 'operating'" },
         "createdAt": { ".validate": "newData.isNumber() && newData.val() <= now + 60000" },
         "createdBy": { ".validate": "newData.val() === auth.uid" },
         "$other": { ".validate": false }

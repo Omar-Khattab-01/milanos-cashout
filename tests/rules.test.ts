@@ -376,6 +376,14 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
           createdBy: "admin",
         }),
       );
+      await assertSucceeds(set(ref(db("admin"), "expenses/operating"), {
+        id: "operating", companyId: "supplier", companyName: "Supplier", date: "2026-09-17",
+        amountCents: 2500, costType: "operating", createdAt: Date.now(), createdBy: "admin",
+      }));
+      await assertFails(set(ref(db("admin"), "expenses/invalid-type"), {
+        id: "invalid-type", companyId: "supplier", companyName: "Supplier", date: "2026-09-17",
+        amountCents: 2500, costType: "misc", createdAt: Date.now(), createdBy: "admin",
+      }));
       await assertFails(get(ref(db("kiosk"), "expenses")));
       await assertSucceeds(remove(ref(db("admin"), "expenses/order")));
     });

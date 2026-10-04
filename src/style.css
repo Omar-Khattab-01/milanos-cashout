@@ -1130,6 +1130,44 @@ a {
 .shopping-list-head h2 {
   margin: 3px 0 0;
 }
+.shopping-filter-nav {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: white;
+  scrollbar-width: thin;
+}
+.shopping-filter-nav button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 8px 12px;
+  white-space: nowrap;
+  border-radius: 999px;
+}
+.shopping-filter-nav button span {
+  display: inline-grid;
+  min-width: 23px;
+  height: 23px;
+  place-items: center;
+  border-radius: 999px;
+  background: #eef1ed;
+  color: #5f6a62;
+  font-size: 11px;
+}
+.shopping-filter-nav button.active {
+  border-color: #2f7d4d;
+  color: #205f3a;
+  background: #edf6ef;
+}
+.shopping-filter-nav button.active span {
+  color: white;
+  background: #2f7d4d;
+}
 .shopping-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1207,25 +1245,82 @@ a {
   .inventory-update button {
     grid-column: 1 / -1;
   }
+  .inventory-tabs {
+    position: sticky;
+    z-index: 8;
+    top: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+    padding: 6px;
+    background: #f4f6f2;
+  }
+  .inventory-tabs button {
+    min-width: 0;
+    padding-inline: 8px;
+  }
+  .inventory-layout {
+    gap: 14px;
+  }
+  .inventory-sidebar {
+    gap: 12px;
+  }
+  .inventory-sidebar .card {
+    padding: 18px;
+  }
+  .inventory-tag-nav {
+    margin-bottom: 14px;
+    padding-bottom: 8px;
+  }
   .shopping-list-head {
     align-items: flex-start;
     flex-direction: column;
+    gap: 10px;
+    padding: 18px;
+  }
+  .shopping-list-head .pill {
+    display: none;
+  }
+  .shopping-filter-nav {
+    position: sticky;
+    z-index: 7;
+    top: 57px;
+    padding: 10px 12px;
+    box-shadow: 0 5px 12px #162b1910;
   }
   .inventory-item-row {
-    align-items: flex-start;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
   }
-  .inventory-state-controls {
-    width: 100%;
+  .inventory-item {
+    padding: 10px;
   }
-  .inventory-state-controls button {
-    width: 100%;
+  .inventory-item .inventory-state-controls {
+    width: auto;
+  }
+  .inventory-item .inventory-state-controls button {
+    width: 44px;
+    min-width: 44px;
+    padding: 5px;
+  }
+  .inventory-item .inventory-state-controls small {
+    display: none;
+  }
+  .inventory-item-open small {
+    font-size: 11px;
   }
   .shopping-list .inventory-state-controls {
     width: auto;
   }
   .shopping-list .inventory-state-controls button {
     width: 46px;
+  }
+  .shopping-list li {
+    min-height: 58px;
+    padding: 8px 10px 8px 14px;
+  }
+  .shopping-list li strong {
+    font-size: 14px;
   }
   .schedule-week-picker { flex-wrap: wrap; }
   .schedule-week-picker .pill { display: none; }

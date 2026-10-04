@@ -49,6 +49,7 @@ let inventory: Record<string, InventoryItem> = {};
 let inventoryTags: Record<string, InventoryTag> = {};
 let inventoryTab: "items" | "shopping" = "items";
 let inventoryTagFilter = "all";
+let shoppingTagFilter = "all";
 let editingInventoryId = "";
 let editingStoreCashId = "";
 let returningCashFlowId = "";
@@ -526,7 +527,18 @@ function inventoryView() {
   const tagButtons = `<button data-action="inventory-filter" data-id="all" class="${inventoryTagFilter === "all" ? "active" : ""}">All <span>${allItems.length}</span></button>${tags.map((tag) => `<button data-action="inventory-filter" data-id="${tag.id}" class="${inventoryTagFilter === tag.id ? "active" : ""}">${esc(tag.name)} <span>${allItems.filter((item) => item.tagId === tag.id).length}</span></button>`).join("")}<button data-action="inventory-filter" data-id="uncategorized" class="${inventoryTagFilter === "uncategorized" ? "active" : ""}">Uncategorized <span>${allItems.filter((item) => !item.tagId).length}</span></button>`;
   const management = `<div class="inventory-layout"><aside class="inventory-sidebar"><section class="card inventory-add"><h2>Add inventory item</h2><form data-form="inventory-add"><label for="inventory-name">Item name</label><input id="inventory-name" name="name" maxlength="100" placeholder="e.g. Pizza boxes" required><label for="inventory-tag">Tag</label><select id="inventory-tag" name="tagId">${tagOptions()}</select><label for="inventory-start-status">Starting status</label><select id="inventory-start-status" name="status"><option value="good">✓ Good</option><option value="needed">× Need to buy</option></select><button class="primary wide" type="submit">Add inventory item</button></form></section><section class="card inventory-tags"><h2>Create a tag</h2><p class="subtle">Examples: Produce, Dairy, Packaging, Cleaning.</p><form data-form="inventory-tag"><div class="entry-input"><input name="name" maxlength="60" placeholder="Tag name" required><button class="primary" type="submit">Add</button></div></form></section></aside><section><nav class="inventory-tag-nav" aria-label="Inventory tags">${tagButtons}</nav>${groups || '<div class="card empty">No inventory items in this tag.</div>'}</section></div>`;
   const shoppingItems = [...allItems].sort((a, b) => Number(inventoryStatus(b) === "needed") - Number(inventoryStatus(a) === "needed") || a.name.localeCompare(b.name));
-  const shopping = `<section class="shopping-panel"><div class="shopping-list-head"><div><div class="eyebrow">One-page shopping checklist</div><h2>${neededItems.length ? `${neededItems.length} item${neededItems.length === 1 ? "" : "s"} still needed` : "Everything has been bought"}</h2><p class="subtle">Tap × when it still needs to be bought. Tap ✓ after it is bought.</p></div><span class="pill">${allItems.length} total items</span></div>${shoppingItems.length ? `<ul class="shopping-list">${shoppingItems.map((item) => `<li class="${inventoryStatus(item) === "needed" ? "is-needed" : "is-good"}"><strong>${esc(item.name)}</strong>${statusControls(item, true)}</li>`).join("")}</ul>` : '<div class="empty shopping-empty">Add inventory items to start a shopping list.</div>'}</section>`;
+  const shoppingGroups = [{ id: "all", name: "All" }, ...tags, ...(allItems.some((item) => !item.tagId) ? [{ id: "uncategorized", name: "Uncategorized" }] : [])];
+  if (!shoppingGroups.some((group) => group.id === shoppingTagFilter)) shoppingTagFilter = "all";
+  const shoppingVisibleItems = shoppingTagFilter === "all" ? shoppingItems : shoppingItems.filter((item) => (item.tagId || "uncategorized") === shoppingTagFilter);
+  const shoppingVisibleNeeded = shoppingVisibleItems.filter((item) => inventoryStatus(item) === "needed");
+  const shoppingGroupName = shoppingGroups.find((group) => group.id === shoppingTagFilter)?.name || "All";
+  const shoppingFilters = shoppingGroups.map((group) => {
+    const groupItems = group.id === "all" ? allItems : allItems.filter((item) => (item.tagId || "uncategorized") === group.id);
+    const groupNeeded = groupItems.filter((item) => inventoryStatus(item) === "needed").length;
+    return `<button data-action="shopping-filter" data-id="${esc(group.id)}" class="${shoppingTagFilter === group.id ? "active" : ""}" aria-pressed="${shoppingTagFilter === group.id}" aria-label="${esc(group.name)}, ${groupNeeded} needed"><strong>${esc(group.name)}</strong><span>${groupNeeded}</span></button>`;
+  }).join("");
+  const shoppingHeading = shoppingVisibleNeeded.length ? `${shoppingVisibleNeeded.length} item${shoppingVisibleNeeded.length === 1 ? "" : "s"} still needed${shoppingTagFilter === "all" ? "" : ` in ${esc(shoppingGroupName)}`}` : `Everything in ${shoppingTagFilter === "all" ? "inventory" : esc(shoppingGroupName)} has been bought`;
+  const shopping = `<section class="shopping-panel"><div class="shopping-list-head"><div><div class="eyebrow">Shopping checklist</div><h2>${shoppingHeading}</h2><p class="subtle">Choose a group, tap × when an item is needed, and tap ✓ after it is bought.</p></div><span class="pill">${shoppingVisibleItems.length} shown</span></div><nav class="shopping-filter-nav" aria-label="Filter shopping list by group">${shoppingFilters}</nav>${shoppingVisibleItems.length ? `<ul class="shopping-list">${shoppingVisibleItems.map((item) => `<li class="${inventoryStatus(item) === "needed" ? "is-needed" : "is-good"}"><strong>${esc(item.name)}</strong>${statusControls(item, true)}</li>`).join("")}</ul>` : '<div class="empty shopping-empty">No inventory items are assigned to this group.</div>'}</section>`;
   return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Inventory</h1><span class="subtle">Mark each item Good or Need to buy.</span></div><span class="pill">${neededItems.length} items needed</span></div><div class="toolbar inventory-tabs"><button data-action="inventory-tab" data-tab="items" class="${inventoryTab === "items" ? "active" : ""}">Inventory</button><button data-action="inventory-tab" data-tab="shopping" class="${inventoryTab === "shopping" ? "active" : ""}">Shopping list <span>${neededItems.length}</span></button></div>${inventoryTab === "items" ? management : shopping}`;
 }
 
@@ -1034,6 +1046,7 @@ root.addEventListener("click", (event) => {
       case "expense-tab": expenseTab = button.dataset.tab as ExpenseTab; break;
       case "inventory-tab": inventoryTab = button.dataset.tab as "items" | "shopping"; editingInventoryId = ""; break;
       case "inventory-filter": inventoryTagFilter = button.dataset.id || "all"; editingInventoryId = ""; break;
+      case "shopping-filter": shoppingTagFilter = button.dataset.id || "all"; break;
       case "edit-inventory": editingInventoryId = editingInventoryId === button.dataset.id ? "" : button.dataset.id!; break;
       case "cancel-inventory-edit": editingInventoryId = ""; break;
       case "set-inventory-status": {

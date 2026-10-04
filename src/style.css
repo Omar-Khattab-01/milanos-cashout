@@ -1005,67 +1005,30 @@ a {
 .inventory-list {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 16px;
+  gap: 8px;
 }
 .inventory-item {
-  padding: 20px;
+  padding: 12px 14px;
   border: 1px solid var(--line);
-  border-top: 4px solid #2f7d4d;
-  border-radius: 12px;
+  border-left: 4px solid #2f7d4d;
+  border-radius: 10px;
   background: white;
-  box-shadow: 0 4px 18px #172d1b0a;
 }
 .inventory-item.needs-stock {
-  border-top-color: #c78032;
+  border-left-color: #b94b45;
+  background: #fffafa;
 }
-.inventory-item.excess-stock {
-  border-top-color: #4978a8;
-}
-.inventory-item h3 {
-  margin: 0 0 5px;
-}
-.inventory-status {
-  color: #69756d;
-  font-size: 13px;
-  font-weight: 700;
-}
-.needs-stock .inventory-status {
-  color: #9a5c18;
-}
-.excess-stock .inventory-status {
-  color: #34658f;
-}
-.inventory-progress {
-  height: 9px;
-  overflow: hidden;
-  margin: 18px 0;
-  border-radius: 999px;
-  background: #edf0ec;
-}
-.inventory-progress span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: #2f7d4d;
-}
-.needs-stock .inventory-progress span {
-  background: #c78032;
-}
-.excess-stock .inventory-progress span {
-  background: #4978a8;
-}
-.inventory-shopping-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: stretch;
+.inventory-item-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 .inventory-item-open {
-  display: flex;
-  justify-content: space-between;
-  gap: 20px;
+  display: grid;
+  flex: 1;
+  gap: 3px;
   min-width: 0;
-  padding: 4px;
+  padding: 2px;
   border: 0;
   background: transparent;
   color: var(--ink);
@@ -1075,10 +1038,6 @@ a {
   border: 0;
   background: transparent;
   color: var(--ink);
-}
-.inventory-item-open > span {
-  display: grid;
-  gap: 5px;
 }
 .inventory-tag-label {
   width: max-content;
@@ -1092,17 +1051,8 @@ a {
   color: #69756d;
   font-size: 12px;
 }
-.inventory-count {
-  flex: 0 0 auto;
-  text-align: right;
-}
-.inventory-count strong {
-  font-size: 18px;
-}
-.inventory-reset {
-  white-space: nowrap;
-}
 .inventory-editor {
+  margin-top: 12px;
   padding-top: 17px;
   border-top: 1px solid var(--line);
 }
@@ -1112,13 +1062,54 @@ a {
 }
 .inventory-update {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr auto;
+  grid-template-columns: 1fr 1fr auto;
   gap: 10px;
   align-items: end;
-  margin-top: 18px;
 }
 .inventory-update button {
   height: 44px;
+}
+.inventory-state-controls {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.inventory-state-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 66px;
+  min-height: 42px;
+  padding: 7px 10px;
+  color: #788078;
+  background: white;
+}
+.inventory-state-controls button span {
+  font-size: 23px;
+  line-height: 1;
+}
+.inventory-state-controls button small {
+  font-size: 11px;
+  font-weight: 800;
+}
+.inventory-state-needed.active {
+  border-color: #b94b45;
+  color: #9e342f;
+  background: #fff0ef;
+}
+.inventory-state-good.active {
+  border-color: #2f7d4d;
+  color: #24683e;
+  background: #eaf6ed;
+}
+.inventory-state-controls.compact button {
+  width: 46px;
+  min-width: 46px;
+  height: 42px;
+  padding: 5px;
+  border-radius: 9px;
 }
 .shopping-panel {
   overflow: hidden;
@@ -1140,38 +1131,29 @@ a {
   margin: 3px 0 0;
 }
 .shopping-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
   margin: 0;
-  padding: 0;
+  padding: 1px;
+  background: var(--line);
   list-style: none;
 }
 .shopping-list li {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) minmax(130px, auto) auto;
-  gap: 15px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
   align-items: center;
-  padding: 17px 24px;
-  border-bottom: 1px solid var(--line);
+  min-height: 66px;
+  padding: 11px 14px;
+  background: white;
 }
-.shopping-list li:last-child {
-  border-bottom: 0;
+.shopping-list li.is-needed {
+  background: #fff9f8;
 }
-.shopping-list li > span {
-  display: grid;
-  gap: 3px;
-}
-.shopping-list small {
-  color: #7b857e;
-}
-.shopping-check {
-  width: 20px;
-  height: 20px;
-  border: 2px solid #b7c0b9;
-  border-radius: 6px;
-}
-.shopping-needed {
-  color: #9a5c18;
-  font-weight: 800;
-  text-align: right;
+.shopping-list li.is-good strong {
+  color: #6f7871;
+  text-decoration: line-through;
 }
 .shopping-empty {
   margin: 24px;
@@ -1194,6 +1176,9 @@ a {
     position: static;
   }
   .inventory-list {
+    grid-template-columns: 1fr;
+  }
+  .shopping-list {
     grid-template-columns: 1fr;
   }
   .schedule-layout { grid-template-columns: 1fr; }
@@ -1222,22 +1207,25 @@ a {
   .inventory-update button {
     grid-column: 1 / -1;
   }
-  .inventory-shopping-row {
-    grid-template-columns: 1fr;
-  }
-  .inventory-reset {
-    width: 100%;
-  }
   .shopping-list-head {
     align-items: flex-start;
     flex-direction: column;
   }
-  .shopping-list li {
-    grid-template-columns: 24px minmax(0, 1fr) auto;
+  .inventory-item-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
-  .shopping-list li button {
-    grid-column: 2 / -1;
+  .inventory-state-controls {
     width: 100%;
+  }
+  .inventory-state-controls button {
+    width: 100%;
+  }
+  .shopping-list .inventory-state-controls {
+    width: auto;
+  }
+  .shopping-list .inventory-state-controls button {
+    width: 46px;
   }
   .schedule-week-picker { flex-wrap: wrap; }
   .schedule-week-picker .pill { display: none; }

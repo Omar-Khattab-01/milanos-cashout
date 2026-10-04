@@ -563,7 +563,7 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertFails(set(ref(db("admin"), "publishedSchedules/2026-10-05"), { ...published, week: "2026-10-05", shifts: { "shift-1": { ...shift, employeeName: "Other" } } }));
       await assertSucceeds(remove(ref(db("admin"), "schedules/2026-09-28/shift-1")));
     });
-    it("keeps inventory PIN-protected and validates quantity and percentage targets", async () => {
+    it("keeps the inventory checklist PIN-protected and validates item status", async () => {
       const tag = { id: "packaging", name: "Packaging", createdAt: Date.now(), createdBy: "admin" };
       const quantity = {
         id: "boxes",
@@ -582,7 +582,9 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertFails(set(ref(db("kiosk"), "inventory/boxes"), { ...quantity, updatedBy: "kiosk" }));
       await assertSucceeds(set(ref(db("admin"), "inventory/boxes"), { ...quantity, tagId: "packaging" }));
       await assertFails(set(ref(db("admin"), "inventory/missing-tag"), { ...quantity, id: "missing-tag", tagId: "missing" }));
-      await assertSucceeds(update(ref(db("admin"), "inventory/boxes"), { currentValue: 75, updatedAt: Date.now() }));
+      await assertSucceeds(set(ref(db("admin"), "inventory/checklist"), { id: "checklist", name: "Napkins", status: "needed", tagId: "packaging", updatedAt: Date.now(), updatedBy: "admin" }));
+      await assertSucceeds(update(ref(db("admin"), "inventory/checklist"), { status: "good", updatedAt: Date.now() }));
+      await assertFails(set(ref(db("admin"), "inventory/invalid-status"), { id: "invalid-status", name: "Sauce", status: "low", updatedAt: Date.now(), updatedBy: "admin" }));
       await assertFails(set(ref(db("admin"), "inventory/invalid-percentage"), { ...quantity, id: "invalid-percentage", targetType: "percentage", targetValue: 101 }));
       await assertSucceeds(set(ref(db("admin"), "inventory/cheese"), { ...quantity, id: "cheese", name: "Cheese", targetType: "percentage", targetValue: 80, currentValue: 35 }));
       await assertSucceeds(remove(ref(db("admin"), "inventory/boxes")));

@@ -101,7 +101,8 @@ export type PublishedSchedule = {
   publishedAt: number;
   publishedBy: string;
 };
-export type InventoryTargetType = "quantity" | "percentage";
+export type InventoryTargetType = "quantity" | "percentage"; // Legacy inventory records only.
+export type InventoryStatus = "good" | "needed";
 export type InventoryTag = {
   id: string;
   name: string;
@@ -111,9 +112,10 @@ export type InventoryTag = {
 export type InventoryItem = {
   id: string;
   name: string;
-  targetType: InventoryTargetType;
-  targetValue: number;
-  currentValue: number;
+  status?: InventoryStatus;
+  targetType?: InventoryTargetType;
+  targetValue?: number;
+  currentValue?: number;
   tagId?: string;
   updatedAt: number;
   updatedBy: string;

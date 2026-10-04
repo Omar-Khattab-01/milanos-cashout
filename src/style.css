@@ -14,6 +14,7 @@
 }
 body {
   margin: 0;
+  overflow-x: hidden;
 }
 button,
 input,
@@ -942,6 +943,12 @@ a {
   gap: 20px;
   align-items: start;
 }
+.inventory-layout > *,
+.inventory-content {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
 .inventory-sidebar {
   position: sticky;
   top: 22px;
@@ -950,6 +957,24 @@ a {
 }
 .inventory-sidebar .card {
   margin: 0;
+}
+.inventory-tool summary {
+  display: grid;
+  gap: 2px;
+  cursor: pointer;
+}
+.inventory-tool summary span {
+  font: 600 21px "Outfit", sans-serif;
+}
+.inventory-tool summary small {
+  color: #758078;
+  font-size: 12px;
+}
+.inventory-tool[open] summary {
+  margin-bottom: 20px;
+}
+.inventory-tool form > button:last-child {
+  margin-top: 16px;
 }
 .inventory-tabs {
   margin-bottom: 22px;
@@ -973,6 +998,8 @@ a {
 }
 .inventory-tag-nav {
   display: flex;
+  width: 100%;
+  max-width: 100%;
   gap: 8px;
   margin-bottom: 22px;
   overflow-x: auto;
@@ -1028,6 +1055,7 @@ a {
   flex: 1;
   gap: 3px;
   min-width: 0;
+  overflow: hidden;
   padding: 2px;
   border: 0;
   background: transparent;
@@ -1050,6 +1078,10 @@ a {
 .inventory-item-open small {
   color: #69756d;
   font-size: 12px;
+}
+.inventory-item-open strong,
+.inventory-item-open small {
+  overflow-wrap: anywhere;
 }
 .inventory-editor {
   margin-top: 12px;
@@ -1208,7 +1240,7 @@ a {
   }
   .register-totals,
   .inventory-layout {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
   .inventory-sidebar {
     position: static;
@@ -1237,7 +1269,7 @@ a {
 @media (max-width: 600px) {
   .register-totals,
   .inventory-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .inventory-update {
     grid-template-columns: 1fr 1fr;
@@ -1266,7 +1298,13 @@ a {
     gap: 12px;
   }
   .inventory-sidebar .card {
-    padding: 18px;
+    padding: 16px;
+  }
+  .inventory-tool summary span {
+    font-size: 18px;
+  }
+  .inventory-tool[open] summary {
+    margin-bottom: 16px;
   }
   .inventory-tag-nav {
     margin-bottom: 14px;

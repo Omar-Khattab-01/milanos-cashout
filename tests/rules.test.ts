@@ -344,6 +344,23 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
         "activeCashouts/alex__driver": null,
       }));
     });
+    it("reserves one cash-out record for each employee, position, and date", async () => {
+      await assertSucceeds(set(ref(db("kiosk"), "cashouts/shift"), record));
+      const key = "alex__driver__2026-10-22";
+      const link = {
+        recordId: "shift",
+        employeeId: "alex",
+        employeeRole: "driver",
+        date: "2026-10-22",
+        createdBy: "kiosk",
+      };
+      await assertSucceeds(set(ref(db("kiosk"), `cashoutDates/${key}`), link));
+      expect((await assertSucceeds(get(ref(db("kiosk"), `cashoutDates/${key}`)))).val()).toEqual(link);
+      await assertSucceeds(set(ref(db("kiosk"), "cashouts/duplicate"), { ...record, id: "duplicate" }));
+      await assertFails(set(ref(db("kiosk"), `cashoutDates/${key}`), { ...link, recordId: "duplicate" }));
+      await assertFails(remove(ref(db("kiosk"), `cashoutDates/${key}`)));
+      await assertSucceeds(remove(ref(db("admin"), `cashoutDates/${key}`)));
+    });
     it("validates online tips and cash-delivery fields server-side", async () => {
       const cash = {
         billNumber: "005",

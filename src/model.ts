@@ -394,5 +394,23 @@ export function businessDate(time: number) {
 export function cashoutAvailableOn(cashout: Cashout, day: string) {
   return localInput(current(cashout).end).slice(0, 10) >= day;
 }
+
+export function cashoutDate(cashout: Cashout) {
+  return localInput(current(cashout).start).slice(0, 10);
+}
+
+export function cashoutMatchesDate(
+  cashout: Cashout,
+  employeeId: string,
+  role: EmployeeRole,
+  day: string,
+) {
+  const shift = current(cashout);
+  return (
+    shift.employeeId === employeeId &&
+    (shift.employeeRole || "driver") === role &&
+    cashoutDate(cashout) === day
+  );
+}
 export const hours = (minutes: number) =>
   `${Math.floor(minutes / 60)}h ${Math.round(minutes % 60)}m`;

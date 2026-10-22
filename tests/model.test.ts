@@ -7,6 +7,8 @@ import {
   cashFlowReturned,
   cashTotals,
   cashoutAvailableOn,
+  cashoutDate,
+  cashoutMatchesDate,
   billNumber,
   totals,
   current,
@@ -35,6 +37,31 @@ describe("cash-out accounting", () => {
     };
     expect(cashoutAvailableOn(cashout, "2026-09-30")).toBe(true);
     expect(cashoutAvailableOn(cashout, "2026-10-01")).toBe(false);
+  });
+  it("matches a cash-out by its corrected date, employee, and position", () => {
+    const cashout: Cashout = {
+      ...shift,
+      employeeRole: "driver",
+      start: new Date("2026-10-21T17:00:00").getTime(),
+      end: new Date("2026-10-21T21:00:00").getTime(),
+      id: "corrected-date",
+      createdBy: "kiosk",
+      createdAt: 1,
+      corrections: {
+        correction: {
+          ...shift,
+          employeeRole: "driver",
+          start: new Date("2026-10-20T17:00:00").getTime(),
+          end: new Date("2026-10-20T21:00:00").getTime(),
+          reason: "Correct date",
+          editedBy: "admin",
+          editedAt: 2,
+        },
+      },
+    };
+    expect(cashoutDate(cashout)).toBe("2026-10-20");
+    expect(cashoutMatchesDate(cashout, "driver", "driver", "2026-10-20")).toBe(true);
+    expect(cashoutMatchesDate(cashout, "driver", "driver", "2026-10-21")).toBe(false);
   });
   it("keeps cash-flow withdrawals and returns auditable", () => {
     const flow = {

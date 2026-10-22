@@ -1,7 +1,7 @@
 import "./style.css";
 import * as store from "./store";
 import {
-  amountOf, billNumber, billOf, cashCents, cashFlowNet, cashFlowReturned, cashTotals, cashoutAvailableOn, cents, current, hours,
+  amountOf, billNumber, billOf, cashCents, cashFlowNet, cashFlowReturned, cashTotals, cashoutAvailableOn, cashoutDate, cents, current, hours,
   localInput, money, salesCents, storeCashAmount, total, totals, validateShift,
   type CashDelivery, type CashFlowEntry, type Cashout, type CashoutReview, type Company, type Employee,
   type DailySales, type EmployeeRole, type EntryList, type Expense, type InventoryItem, type InventoryStatus, type InventoryTag, type OpeningHours, type ReviewStatus,
@@ -120,7 +120,7 @@ function writeDraftProgress(drafts: Record<string, SavedCashoutDraft>) {
 }
 
 function saveDraftProgress() {
-  if (editId || !draft.employeeId || activeDraftDay !== today()) return;
+  if (editId || !draft.employeeId || activeDraftDay !== today() || draft.startDate !== today()) return;
   const drafts = readDraftProgress();
   drafts[employeeDraftKey(draft.employeeId, cashoutRole)] = {
     role: cashoutRole,
@@ -201,6 +201,7 @@ async function restoreDraftProgress(employeeId: string) {
 
 function markDraftSubmitted(employeeId: string, recordId: string, end: number) {
   submittedDraftId = recordId; submittedDraftEnd = end;
+  if (localInput(end).slice(0, 10) !== today()) return;
   const drafts = readDraftProgress();
   drafts[employeeDraftKey(employeeId, cashoutRole)] = {
     role: cashoutRole,
@@ -209,6 +210,46 @@ function markDraftSubmitted(employeeId: string, recordId: string, end: number) {
     entryInputs: {}, savedAt: Date.now(), submittedId: recordId, submittedEnd: end,
   };
   writeDraftProgress(drafts);
+}
+
+function startingCashFor(employeeId: string, day: string) {
+  return cashFlows.reduce(
+    (sum, entry) =>
+      sum + (entry.date === day && entry.employeeId === employeeId ? cashFlowNet(entry) : 0),
+    0,
+  );
+}
+
+function changeCashoutDate(day: string) {
+  if (!day) return;
+  const submittedDate = submittedDraftEnd
+    ? localInput(submittedDraftEnd).slice(0, 10)
+    : "";
+  if (!editId && submittedDraftId && day !== submittedDate) {
+    const employeeId = draft.employeeId;
+    draft = {
+      employeeId,
+      startDate: day,
+      endDate: day,
+      start: "",
+      end: "",
+      deliveries: {},
+      tips: {},
+      onlineTips: {},
+      startingCash: (startingCashFor(employeeId, day) / 100).toFixed(2),
+      cashDeliveries: {},
+    };
+    confirmed = emptyConfirmed();
+    Object.keys(entryInputs).forEach((key) => delete entryInputs[key]);
+    editingListEntry = null;
+    submittedDraftId = "";
+    submittedDraftEnd = 0;
+    pending = null;
+  } else {
+    draft.startDate = day;
+    draft.endDate = day;
+  }
+  customDates = true;
 }
 
 async function offerCashFlowReturn(shift: Shift) {
@@ -763,8 +804,8 @@ async function afterLogin() {
 root.addEventListener("input", (event) => {
   const el = event.target as HTMLInputElement;
   if (el.dataset.draft && el.dataset.draft !== "employeeId") {
-    if (el.dataset.draft === "startDate") { customDates = true; draft.endDate = el.value; }
-    (draft as unknown as Record<string, unknown>)[el.dataset.draft] = el.value;
+    if (el.dataset.draft === "startDate") changeCashoutDate(el.value);
+    else (draft as unknown as Record<string, unknown>)[el.dataset.draft] = el.value;
     pending = null;
     saveDraftProgress();
   }
@@ -797,8 +838,8 @@ root.addEventListener("change", (event) => {
     return;
   }
   if (el.dataset.draft) {
-    if (el.dataset.draft === "startDate") { customDates = true; draft.endDate = el.value; }
-    (draft as unknown as Record<string, unknown>)[el.dataset.draft] = el.value;
+    if (el.dataset.draft === "startDate") changeCashoutDate(el.value);
+    else (draft as unknown as Record<string, unknown>)[el.dataset.draft] = el.value;
     if (el.dataset.draft === "employeeId" && cashoutRole === "driver" && !editId) {
       const startingCash = cashFlows.reduce((sum, entry) => sum + (entry.date === today() && entry.employeeId === el.value ? cashFlowNet(entry) : 0), 0);
       draft.startingCash = (startingCash / 100).toFixed(2);
@@ -1177,12 +1218,16 @@ root.addEventListener("click", (event) => {
       case "save": {
         confirmed = { deliveries: true, tips: true, onlineTips: true, cashDeliveries: true };
         const s = shift(); validateShift(s);
+        const shiftDay = localInput(s.start).slice(0, 10);
         if (editId) {
           if (!reason.trim()) throw new Error("Enter a reason for the correction.");
           await store.correct(editId, { ...s, reason: reason.trim(), editedAt: Date.now(), editedBy: store.uid() });
           records = await store.history(); selected = records.find((r) => r.id === editId) || null; editId = ""; view = "detail";
         } else if (submittedDraftId) {
           const recordId = submittedDraftId;
+          const submittedRecord = await store.getCashout(recordId);
+          if (!submittedRecord || cashoutDate(submittedRecord) !== shiftDay)
+            throw new Error("Changing the date creates a new cash-out. Select the employee again and enter that date’s shift.");
           await store.correct(recordId, {
             ...s, reason: "Updated by employee during active shift", editedAt: Date.now(), editedBy: store.uid(),
           });
@@ -1191,12 +1236,17 @@ root.addEventListener("click", (event) => {
           message = await offerCashFlowReturn(s) || "Cash-out updated.";
           success = true; view = "saved"; pending = null;
         } else {
-          pending ||= { ...s, id: crypto.randomUUID(), createdBy: store.uid(), createdAt: Date.now() };
+          const duplicate = await store.findCashoutByDate(s.employeeId, shiftRole(s), shiftDay);
+          if (duplicate)
+            throw new Error(`${s.employeeName} already has a ${roleName(shiftRole(s)).toLowerCase()} cash-out for ${shiftDay}. An admin can correct it from History.`);
+          pending ||= { ...s, id: store.cashoutDateKey(s.employeeId, shiftRole(s), shiftDay), createdBy: store.uid(), createdAt: Date.now() };
           await store.save(pending);
-          await store.saveActiveCashout({
-            recordId: pending.id, employeeId: s.employeeId, date: localInput(s.start).slice(0, 10),
-            employeeRole: shiftRole(s), end: s.end, createdBy: store.uid(), updatedAt: Date.now(),
-          });
+          if (shiftDay === today()) {
+            await store.saveActiveCashout({
+              recordId: pending.id, employeeId: s.employeeId, date: shiftDay,
+              employeeRole: shiftRole(s), end: s.end, createdBy: store.uid(), updatedAt: Date.now(),
+            });
+          }
           selected = structuredClone(pending);
           markDraftSubmitted(s.employeeId, pending.id, s.end);
           message = await offerCashFlowReturn(s);

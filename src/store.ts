@@ -19,6 +19,7 @@ import {
   orderByChild,
   limitToLast,
 } from "firebase/database";
+import { cashoutDate, cashoutMatchesDate } from "./model";
 import type {
   ActiveCashoutLink,
   Cashout,
@@ -218,7 +219,22 @@ export async function save(record: Cashout) {
     await set(ref(db, `cashouts/${record.id}`), record);
   } catch (error) {
     const saved = (await get(ref(db, `cashouts/${record.id}`))).val();
-    if (!saved || canonical(saved) !== canonical(record)) throw error;
+    if (!saved || canonical(saved) !== canonical(record))
+      throw new Error(`${record.employeeName} already has a cash-out for ${cashoutDate(record)}.`);
+  }
+  const key = cashoutDateKey(record.employeeId, record.employeeRole || "driver", cashoutDate(record));
+  const link = {
+    recordId: record.id,
+    employeeId: record.employeeId,
+    employeeRole: record.employeeRole || "driver",
+    date: cashoutDate(record),
+    createdBy: record.createdBy,
+  };
+  try {
+    await set(ref(db, `cashoutDates/${key}`), link);
+  } catch (error) {
+    const saved = (await get(ref(db, `cashoutDates/${key}`))).val();
+    if (saved?.recordId !== record.id) throw error;
   }
 }
 export async function getCashout(id: string): Promise<Cashout | null> {
@@ -281,11 +297,53 @@ export async function allHistory(): Promise<Cashout[]> {
     (a, b) => b.createdAt - a.createdAt,
   );
 }
+export async function findCashoutByDate(
+  employeeId: string,
+  role: EmployeeRole,
+  day: string,
+): Promise<Cashout | null> {
+  if (!db)
+    return (
+      (Object.values(records) as Cashout[]).find((record) =>
+        cashoutMatchesDate(record, employeeId, role, day),
+      ) || null
+    );
+  const link = (
+    await get(ref(db, `cashoutDates/${cashoutDateKey(employeeId, role, day)}`))
+  ).val();
+  if (typeof link?.recordId === "string") return getCashout(link.recordId);
+  return getCashout(cashoutDateKey(employeeId, role, day));
+}
+export const cashoutDateKey = (employeeId: string, role: EmployeeRole, day: string) =>
+  `${employeeId}__${role}__${day}`;
 export async function correct(id: string, correction: Correction) {
   const key = crypto.randomUUID();
-  if (db)
-    await update(ref(db, `cashouts/${id}/corrections`), { [key]: correction });
-  else {
+  if (db) {
+    const original = await getCashout(id);
+    if (!original) throw new Error("This cash-out no longer exists.");
+    const oldDay = cashoutDate(original);
+    const newDay = cashoutDate({ ...original, corrections: { ...original.corrections, [key]: correction } });
+    if (oldDay === newDay) {
+      await update(ref(db, `cashouts/${id}/corrections`), { [key]: correction });
+      return;
+    }
+    const role = original.employeeRole || "driver";
+    const newKey = cashoutDateKey(original.employeeId, role, newDay);
+    const existing = (await get(ref(db, `cashoutDates/${newKey}`))).val();
+    if (existing?.recordId && existing.recordId !== id)
+      throw new Error(`${original.employeeName} already has a ${role} cash-out for ${newDay}.`);
+    await update(ref(db), {
+      [`cashouts/${id}/corrections/${key}`]: correction,
+      [`cashoutDates/${cashoutDateKey(original.employeeId, role, oldDay)}`]: null,
+      [`cashoutDates/${newKey}`]: {
+        recordId: id,
+        employeeId: original.employeeId,
+        employeeRole: role,
+        date: newDay,
+        createdBy: original.createdBy,
+      },
+    });
+  } else {
     records[id].corrections ||= {};
     records[id].corrections![key] = structuredClone(correction);
   }
@@ -293,13 +351,15 @@ export async function correct(id: string, correction: Correction) {
 export async function deleteShift(id: string, employeeId: string, role: EmployeeRole) {
   const key = activeCashoutKey(employeeId, role);
   if (db) {
-    const [link, legacy] = await Promise.all([
-      get(ref(db, `activeCashouts/${key}`)), get(ref(db, `activeCashouts/${employeeId}`)),
+    const [link, legacy, record] = await Promise.all([
+      get(ref(db, `activeCashouts/${key}`)), get(ref(db, `activeCashouts/${employeeId}`)), getCashout(id),
     ]);
     const updates: Record<string, null> = {
       [`cashouts/${id}`]: null,
       [`cashoutReviews/${id}`]: null,
     };
+    if (record)
+      updates[`cashoutDates/${cashoutDateKey(employeeId, role, cashoutDate(record))}`] = null;
     if ((link.val() as ActiveCashoutLink | null)?.recordId === id) updates[`activeCashouts/${key}`] = null;
     if ((legacy.val() as ActiveCashoutLink | null)?.recordId === id) updates[`activeCashouts/${employeeId}`] = null;
     await update(ref(db), updates);

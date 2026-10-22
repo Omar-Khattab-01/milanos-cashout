@@ -54,6 +54,7 @@ let editingInventoryId = "";
 let editingStoreCashId = "";
 let returningCashFlowId = "";
 let dailySales: Record<string, DailySales> = {};
+let editingDailySalesDate = "";
 let expenseMonth = today().slice(0, 7);
 let expenseTab: ExpenseTab = "overview";
 let monthlyRentCents = 0;
@@ -442,7 +443,13 @@ function dailySalesView() {
     return { sale, expected, delivery, driverCash, storeCash, difference };
   });
   const monthlyDifference = rows.reduce((sum, row) => sum + row.difference, 0);
-  return `<section class="card"><div class="row"><div><h2>Daily sales reconciliation</h2><p class="subtle">PC sales + online orders + driver delivery pay, minus Clover gross sales, online receivables, driver cash orders, and in-store cash.</p></div>${rows.length ? `<span class="pill">Month difference: ${money(monthlyDifference)}</span>` : ""}</div><form data-form="daily-sales"><div class="fields"><div><label for="sales-date">Date</label><input id="sales-date" name="date" type="date" value="${today()}" required></div><div><label for="pc-sales">Milano’s PC sales</label><input id="pc-sales" name="pcSales" inputmode="decimal" placeholder="0.00" required></div><div><label for="online-orders">Online orders</label><input id="online-orders" name="onlineOrders" inputmode="decimal" placeholder="0.00" required></div><div><label for="clover-gross">Clover devices gross sales</label><input id="clover-gross" name="cloverGross" inputmode="decimal" placeholder="0.00" required></div><div><label for="online-receivable">Online order receivable</label><input id="online-receivable" name="onlineReceivable" inputmode="decimal" placeholder="0.00" required></div></div><button class="primary" type="submit" style="margin-top:16px">Save daily sales</button><p class="subtle">Saving the same date updates that day. Delivery pay, driver cash, and in-store cash are calculated automatically.</p></form></section><section class="card table-wrap"><h2>Daily sales for ${esc(expenseMonth)}</h2>${rows.length ? `<table><thead><tr><th>Date</th><th>PC + online</th><th>Clover</th><th>Online receivable</th><th>Delivery</th><th>Driver cash</th><th>Store cash</th><th>Difference</th><th></th></tr></thead><tbody>${rows.map(({ sale, expected, delivery, driverCash, storeCash, difference }) => `<tr><td>${esc(sale.date)}</td><td>${money(expected)}</td><td>${money(sale.cloverGrossCents)}</td><td>${money(sale.onlineReceivableCents)}</td><td>${money(delivery)}</td><td>${money(driverCash)}</td><td>${money(storeCash)}</td><td><strong class="${difference === 0 ? "balanced" : "unbalanced"}">${money(difference)}</strong></td><td><button data-action="delete-daily-sales" data-date="${esc(sale.date)}">Delete</button></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No daily sales entered for this month.</div>'}</section><section class="card table-wrap"><h2>In-store cash entries</h2>${monthStoreCash.length ? `<table><thead><tr><th>Date</th><th>Time</th><th>Bill number</th><th>Amount</th></tr></thead><tbody>${monthStoreCash.map((entry) => `<tr><td>${esc(entry.date)}</td><td>${time(entry.createdAt)}</td><td>${esc(entry.billNumber || "Not recorded")}</td><td>${money(storeCashAmount(entry))}${entry.corrections ? ' <span class="subtle">Corrected</span>' : ""}</td></tr>`).join("")}</tbody></table>` : '<div class="empty">No in-store cash entries for this month.</div>'}</section>`;
+  const editingSale = editingDailySalesDate ? dailySales[editingDailySalesDate] : null;
+  const salesValue = (value?: number) => value === undefined ? "" : (value / 100).toFixed(2);
+  const formDate = editingSale?.date || today();
+  const form = `<section class="card" id="daily-sales-form"><div class="row"><div><h2>${editingSale ? `Edit sales for ${esc(editingSale.date)}` : "Daily sales reconciliation"}</h2><p class="subtle">PC sales + online orders + driver delivery pay, minus Clover gross sales, online receivables, driver cash orders, and in-store cash.</p></div>${rows.length ? `<span class="pill">Month difference: ${money(monthlyDifference)}</span>` : ""}</div><form data-form="daily-sales"><div class="fields"><div><label for="sales-date">Date</label><input id="sales-date" name="date" type="date" value="${esc(formDate)}" ${editingSale ? "readonly" : ""} required></div><div><label for="pc-sales">Milano’s PC sales</label><input id="pc-sales" name="pcSales" inputmode="decimal" placeholder="0.00" value="${salesValue(editingSale?.pcSalesCents)}" required></div><div><label for="online-orders">Online orders</label><input id="online-orders" name="onlineOrders" inputmode="decimal" placeholder="0.00" value="${salesValue(editingSale?.onlineOrdersCents)}" required></div><div><label for="clover-gross">Clover devices gross sales</label><input id="clover-gross" name="cloverGross" inputmode="decimal" placeholder="0.00" value="${salesValue(editingSale?.cloverGrossCents)}" required></div><div><label for="online-receivable">Online order receivable</label><input id="online-receivable" name="onlineReceivable" inputmode="decimal" placeholder="0.00" value="${salesValue(editingSale?.onlineReceivableCents)}" required></div></div><div class="form-actions"><button class="primary" type="submit">${editingSale ? "Update daily sales" : "Save daily sales"}</button>${editingSale ? '<button type="button" data-action="cancel-daily-sales-edit">Cancel</button>' : ""}</div><p class="subtle">${editingSale ? "Update the amounts for this date, then save your changes." : "Saving the same date updates that day."} Delivery pay, driver cash, and in-store cash are calculated automatically.</p></form></section>`;
+  const salesTable = `<section class="card table-wrap"><h2>Daily sales for ${esc(expenseMonth)}</h2>${rows.length ? `<table><thead><tr><th>Date</th><th>PC + online</th><th>Clover</th><th>Online receivable</th><th>Delivery</th><th>Driver cash</th><th>Store cash</th><th>Difference</th><th></th></tr></thead><tbody>${rows.map(({ sale, expected, delivery, driverCash, storeCash, difference }) => `<tr><td>${esc(sale.date)}</td><td><details class="sales-breakdown"><summary>${money(expected)}</summary><div><span>PC sales <strong>${money(sale.pcSalesCents)}</strong></span><span>Online orders <strong>${money(sale.onlineOrdersCents)}</strong></span></div></details></td><td>${money(sale.cloverGrossCents)}</td><td>${money(sale.onlineReceivableCents)}</td><td>${money(delivery)}</td><td>${money(driverCash)}</td><td>${money(storeCash)}</td><td><strong class="${difference === 0 ? "balanced" : "unbalanced"}">${money(difference)}</strong></td><td><div class="table-actions"><button data-action="edit-daily-sales" data-date="${esc(sale.date)}">Edit</button><button data-action="delete-daily-sales" data-date="${esc(sale.date)}">Delete</button></div></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No daily sales entered for this month.</div>'}</section>`;
+  const storeCashTable = `<section class="card table-wrap"><h2>In-store cash entries</h2>${monthStoreCash.length ? `<table><thead><tr><th>Date</th><th>Time</th><th>Bill number</th><th>Amount</th></tr></thead><tbody>${monthStoreCash.map((entry) => `<tr><td>${esc(entry.date)}</td><td>${time(entry.createdAt)}</td><td>${esc(entry.billNumber || "Not recorded")}</td><td>${money(storeCashAmount(entry))}${entry.corrections ? ' <span class="subtle">Corrected</span>' : ""}</td></tr>`).join("")}</tbody></table>` : '<div class="empty">No in-store cash entries for this month.</div>'}</section>`;
+  return form + salesTable + storeCashTable;
 }
 
 function expensesView() {
@@ -850,7 +857,7 @@ root.addEventListener("change", (event) => {
   if (el.hasAttribute("data-reason")) reason = el.value;
   if (el.id === "filter-employee") filterEmployee = el.value;
   if (el.id === "filter-date") filterDate = el.value;
-  if (el.id === "expense-month") expenseMonth = el.value;
+  if (el.id === "expense-month") { expenseMonth = el.value; editingDailySalesDate = ""; }
   if (el.id === "schedule-week") {
     scheduleWeek = weekStartFor(el.value);
     void run(async () => {
@@ -1044,11 +1051,12 @@ root.addEventListener("submit", (event) => {
         message = `${item.name} updated.`; success = true; break;
       }
       case "daily-sales": {
-        const salesDate = String(data.get("date"));
+        const salesDate = editingDailySalesDate || String(data.get("date"));
         if (!/^\d{4}-\d{2}-\d{2}$/.test(salesDate)) throw new Error("Enter the sales date.");
         await store.saveDailySales({ date: salesDate, pcSalesCents: salesCents(String(data.get("pcSales"))), onlineOrdersCents: salesCents(String(data.get("onlineOrders"))), cloverGrossCents: salesCents(String(data.get("cloverGross"))), onlineReceivableCents: salesCents(String(data.get("onlineReceivable"))), updatedAt: Date.now(), updatedBy: store.uid() });
         dailySales = await store.getDailySales(); expenseMonth = salesDate.slice(0, 7);
-        message = "Daily sales saved."; success = true; break;
+        message = editingDailySalesDate ? `Daily sales for ${salesDate} updated.` : "Daily sales saved.";
+        editingDailySalesDate = ""; success = true; break;
       }
       case "monthly-rent": {
         monthlyRentCents = salesCents(String(data.get("amount")));
@@ -1305,7 +1313,14 @@ root.addEventListener("click", (event) => {
         await store.deleteExpense(button.dataset.id!); expenses = await store.getExpenses(); message = "Expense deleted."; success = true; break;
       case "delete-daily-sales":
         if (!window.confirm(`Delete daily sales for ${button.dataset.date}?`)) return;
-        await store.deleteDailySales(button.dataset.date!); dailySales = await store.getDailySales(); message = "Daily sales deleted."; success = true; break;
+        await store.deleteDailySales(button.dataset.date!); dailySales = await store.getDailySales();
+        if (editingDailySalesDate === button.dataset.date) editingDailySalesDate = "";
+        message = "Daily sales deleted."; success = true; break;
+      case "edit-daily-sales":
+        editingDailySalesDate = button.dataset.date!;
+        requestAnimationFrame(() => document.getElementById("daily-sales-form")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+        break;
+      case "cancel-daily-sales-edit": editingDailySalesDate = ""; break;
       case "delete-inventory": {
         const item = inventory[button.dataset.id!];
         if (!item || !window.confirm(`Delete ${item.name} from inventory?`)) return;

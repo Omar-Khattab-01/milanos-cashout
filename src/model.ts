@@ -132,6 +132,7 @@ export type DailySales = {
 export type ReviewStatus = "under_review" | "reviewed";
 export type CashoutReview = {
   status: ReviewStatus;
+  paidCents?: number;
   updatedAt: number;
   updatedBy: string;
 };

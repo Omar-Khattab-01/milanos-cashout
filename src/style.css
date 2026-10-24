@@ -620,6 +620,11 @@ a {
   margin-top: 16px;
 }
 @media (max-width: 650px) {
+  .payment-balance { grid-template-columns: 1fr; }
+  .partial-payment-form {
+    align-items: stretch;
+    flex-direction: column;
+  }
   .bill-input,
   .multi-input,
   .cash-input {
@@ -656,6 +661,35 @@ a {
   background: #fff1d6;
   color: #8a5700;
 }
+.pending-pay { color: #9c3d32; }
+.payment-balance {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.payment-balance > div {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fafbf9;
+}
+.payment-balance .pending {
+  color: #8c3128;
+  background: #fff7f5;
+  border-color: #efc8c2;
+}
+.partial-payment-form {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.partial-payment-form > div { flex: 1; }
 .review-status.reviewed {
   background: #e1f4e8;
   color: #176b38;

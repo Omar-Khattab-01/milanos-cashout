@@ -40,6 +40,7 @@ let busy = false;
 let records: Cashout[] = [];
 let reviews: Record<string, CashoutReview> = {};
 let selected: Cashout | null = null;
+let editingReviewPayment = false;
 let companies: Record<string, Company> = {};
 let expenses: Expense[] = [];
 let storeCashEntries: StoreCashEntry[] = [];
@@ -397,6 +398,12 @@ function reviewBadge(id: string) {
   return `<span class="review-status ${status}">${label}</span>`;
 }
 
+function pendingPay(id: string, totalPay: number) {
+  const review = reviews[id];
+  if (review?.status !== "under_review" || review.paidCents === undefined) return null;
+  return Math.max(totalPay - review.paidCents, 0);
+}
+
 function cashFlowBadge(shift: Shift) {
   if (shiftRole(shift) !== "driver" || !(shift.startingCashCents || 0)) return "—";
   const shiftDay = localInput(shift.start).slice(0, 10);
@@ -411,7 +418,7 @@ function historyView() {
   const filtered = records.filter((r) => (!filterEmployee || current(r).employeeId === filterEmployee) && (!filterDate || localInput(current(r).start).slice(0, 10) === filterDate));
   const filteredFlows = cashFlows.filter((entry) => (!filterEmployee || entry.employeeId === filterEmployee) && (!filterDate || entry.date === filterDate));
   const flowHistory = `<section class="card table-wrap"><h2>Driver cash-flow history</h2><p class="subtle">Every amount taken and put back remains recorded.</p>${filteredFlows.length ? `<table><thead><tr><th>Date / time</th><th>Driver</th><th>Taken</th><th>Put back</th><th>Remaining</th></tr></thead><tbody>${filteredFlows.map((entry) => `<tr><td>${esc(entry.date)}<br><span class="subtle">${time(entry.createdAt)}</span></td><td><strong>${esc(entry.employeeName)}</strong></td><td>${money(entry.amountCents)}</td><td>${cashFlowReturned(entry) ? `${money(cashFlowReturned(entry))}<br><span class="subtle">${Object.values(entry.returns || {}).map((item) => time(item.returnedAt)).join(", ")}</span>` : "—"}</td><td><strong>${money(cashFlowNet(entry))}</strong></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No driver cash-flow records match these filters.</div>'}</section>`;
-  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Cash-out history</h1><span class="subtle">Review, correct, reprint, or delete saved shifts.</span></div><button data-action="load-all">Load all history</button></div><div class="toolbar"><select id="filter-employee"><option value="">All employees</option>${Object.entries(roster).map(([id, e]) => `<option value="${esc(id)}" ${filterEmployee === id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select><input id="filter-date" type="date" value="${filterDate}"><button data-action="clear-filters">Clear filters</button></div><section class="card table-wrap"><p class="subtle">${records.length} loaded · ${filtered.length} matching shifts.</p>${filtered.length ? `<table><thead><tr><th>Employee / date</th><th>Review status</th><th>Driver cash</th><th>Hours</th><th>Total pay</th><th>Cash owed</th><th></th></tr></thead><tbody>${filtered.map((r) => { const s = current(r), t = totals(s), status = reviewState(r.id); return `<tr><td><strong>${esc(s.employeeName)}</strong><br><span class="subtle">${roleName(shiftRole(s))} · ${date(s.start)}${r.corrections ? " · Corrected" : ""}</span></td><td>${reviewBadge(r.id)}</td><td>${cashFlowBadge(s)}</td><td>${hours(t.minutes)}</td><td><strong>${money(t.total)}</strong></td><td>${shiftRole(s) === "driver" ? money(cashTotals(s).owed) : "—"}</td><td><div class="row"><button data-action="detail" data-id="${r.id}">View</button>${status === "reviewed" ? '<span class="review-check" aria-label="Reviewed">✓</span>' : ""}</div></td></tr>`; }).join("")}</tbody></table>` : '<div class="empty">No cash-outs found.</div>'}</section>${flowHistory}`;
+  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Cash-out history</h1><span class="subtle">Review, correct, reprint, or delete saved shifts.</span></div><button data-action="load-all">Load all history</button></div><div class="toolbar"><select id="filter-employee"><option value="">All employees</option>${Object.entries(roster).map(([id, e]) => `<option value="${esc(id)}" ${filterEmployee === id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select><input id="filter-date" type="date" value="${filterDate}"><button data-action="clear-filters">Clear filters</button></div><section class="card table-wrap"><p class="subtle">${records.length} loaded · ${filtered.length} matching shifts.</p>${filtered.length ? `<table><thead><tr><th>Employee / date</th><th>Review status</th><th>Pending pay</th><th>Driver cash</th><th>Hours</th><th>Total pay</th><th>Cash owed</th><th></th></tr></thead><tbody>${filtered.map((r) => { const s = current(r), t = totals(s), status = reviewState(r.id), pending = pendingPay(r.id, t.total); return `<tr><td><strong>${esc(s.employeeName)}</strong><br><span class="subtle">${roleName(shiftRole(s))} · ${date(s.start)}${r.corrections ? " · Corrected" : ""}</span></td><td>${reviewBadge(r.id)}</td><td>${status === "under_review" ? pending === null ? '<span class="subtle">Not recorded</span>' : `<strong class="pending-pay">${money(pending)}</strong>` : "—"}</td><td>${cashFlowBadge(s)}</td><td>${hours(t.minutes)}</td><td><strong>${money(t.total)}</strong></td><td>${shiftRole(s) === "driver" ? money(cashTotals(s).owed) : "—"}</td><td><div class="row"><button data-action="detail" data-id="${r.id}">View</button>${status === "reviewed" ? '<span class="review-check" aria-label="Reviewed">✓</span>' : ""}</div></td></tr>`; }).join("")}</tbody></table>` : '<div class="empty">No cash-outs found.</div>'}</section>${flowHistory}`;
 }
 
 function employeeView() {
@@ -675,11 +682,17 @@ function detailView() {
   if (!selected) return "";
   const s = current(selected);
   const status = reviewState(selected.id);
+  const review = reviews[selected.id];
+  const totalPay = totals(s).total;
+  const paid = review?.paidCents;
+  const pending = pendingPay(selected.id, totalPay);
   const items = (label: string, list: EntryList = {}) => `<details><summary>${label} · ${Object.keys(list).length} entries · ${money(total(list))}</summary><ol>${Object.values(list).map((entry) => `<li style="padding:8px">Bill ${esc(billOf(entry))} · ${money(amountOf(entry))}${typeof entry !== "number" && entry.deliveryFeeCents !== undefined ? ` · Delivery fee ${money(entry.deliveryFeeCents)}` : ""}</li>`).join("") || '<p class="subtle">No entries.</p>'}</ol></details>`;
   const cashItems = (value: Shift) => `<details><summary>Cash deliveries · ${Object.keys(value.cashDeliveries || {}).length} bills · ${money(cashTotals(value).billTotals)}</summary><p>Starting cash: ${money(value.startingCashCents || 0)}</p><ol>${Object.values(value.cashDeliveries || {}).map((e) => `<li>Bill ${esc(e.billNumber)} · ${money(e.billTotalCents)} · Delivery fee ${money(e.deliveryFeeCents || 0)}</li>`).join("") || "<p>No cash deliveries.</p>"}</ol></details>`;
+  const paymentBalance = status === "under_review" ? `<div class="payment-balance"><div><span class="subtle">Total pay</span><strong>${money(totalPay)}</strong></div><div><span class="subtle">Paid so far</span><strong>${paid === undefined ? "Not recorded" : money(paid)}</strong></div><div class="pending"><span>Pending pay</span><strong>${pending === null ? "Not recorded" : money(pending)}</strong></div></div>` : "";
+  const partialPaymentForm = `<form data-form="partial-payment" class="partial-payment-form"><div><label for="partial-payment">Amount paid so far</label><input id="partial-payment" name="amount" inputmode="decimal" placeholder="0.00" value="${paid === undefined ? "" : (paid / 100).toFixed(2)}" required autofocus><p class="subtle">Enter the total amount paid toward this ${money(totalPay)} cash-out.</p></div><button class="primary" type="submit">Save partial payment</button><button type="button" data-action="cancel-partial-payment">Cancel</button></form>`;
   const reviewActions = status === "reviewed"
     ? `<div class="row"><span>${reviewBadge(selected.id)}</span><span class="review-check" aria-label="Reviewed">✓</span></div>`
-    : `<div class="row"><span>${reviewBadge(selected.id)}</span><div class="row"><button class="primary" data-action="set-review" data-status="reviewed">Mark Paid</button>${status === "not_reviewed" ? '<button data-action="set-review" data-status="under_review">Partially Paid</button>' : ""}</div></div>`;
+    : `${paymentBalance}<div class="row"><span>${reviewBadge(selected.id)}</span><div class="row"><button class="primary" data-action="set-review" data-status="reviewed">Mark Paid</button><button data-action="partial-payment">${status === "under_review" ? "Update Partial Payment" : "Partially Paid"}</button></div></div>${editingReviewPayment ? partialPaymentForm : ""}`;
   const itemized = shiftRole(s) === "driver" ? `<h2>Itemized entries</h2>${items("Delivery fees", s.deliveries)}${items("Tips", s.tips)}${items("Tips Online", s.onlineTips)}${cashItems(s)}` : "";
   const shiftDay = localInput(s.start).slice(0, 10);
   const relatedFlows = cashFlows.filter((entry) => entry.employeeId === s.employeeId && entry.date === shiftDay);
@@ -1058,6 +1071,16 @@ root.addEventListener("submit", (event) => {
         message = editingDailySalesDate ? `Daily sales for ${salesDate} updated.` : "Daily sales saved.";
         editingDailySalesDate = ""; success = true; break;
       }
+      case "partial-payment": {
+        if (!selected) throw new Error("Open a cash-out before recording payment.");
+        const totalPay = totals(current(selected)).total;
+        const paidCents = salesCents(String(data.get("amount")));
+        if (paidCents <= 0) throw new Error("Enter an amount greater than zero.");
+        if (paidCents >= totalPay) throw new Error("If the full amount was paid, use Mark Paid.");
+        await store.setReview(selected.id, "under_review", paidCents);
+        reviews = await store.getReviews(); editingReviewPayment = false;
+        message = `${money(paidCents)} paid · ${money(totalPay - paidCents)} pending.`; success = true; break;
+      }
       case "monthly-rent": {
         monthlyRentCents = salesCents(String(data.get("amount")));
         await store.setMonthlyRent(monthlyRentCents);
@@ -1195,7 +1218,7 @@ root.addEventListener("click", (event) => {
         submittedDraftEnd = 0;
         pending = null;
         break;
-      case "back-history": [records, reviews] = await Promise.all([store.history(), store.getReviews()]); view = "history"; break;
+      case "back-history": editingReviewPayment = false; [records, reviews] = await Promise.all([store.history(), store.getReviews()]); view = "history"; break;
       case "authorize-device": await store.authorizeDevice(); message = "This store computer is authorized for driver cash-outs."; success = true; break;
       case "done": {
         const kind = button.dataset.kind as ListKind;
@@ -1273,10 +1296,13 @@ root.addEventListener("click", (event) => {
         if (!window.confirm(`Delete ${roster[id].name}? Their saved history will remain.`)) return;
         await store.deleteEmployee(id); roster = await store.roster(); message = "Employee deleted."; success = true; break;
       }
-      case "detail": selected = records.find((r) => r.id === button.dataset.id)!; view = "detail"; break;
+      case "detail": editingReviewPayment = false; selected = records.find((r) => r.id === button.dataset.id)!; view = "detail"; break;
+      case "partial-payment": editingReviewPayment = true; break;
+      case "cancel-partial-payment": editingReviewPayment = false; break;
       case "set-review":
         if (!selected) return;
-        await store.setReview(selected.id, button.dataset.status as ReviewStatus);
+        await store.setReview(selected.id, "reviewed", totals(current(selected)).total);
+        editingReviewPayment = false;
         if (button.dataset.status === "reviewed") {
           const reviewedShift = current(selected);
           await store.closeActiveCashout(reviewedShift.employeeId, shiftRole(reviewedShift), selected.id);

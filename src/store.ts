@@ -375,9 +375,10 @@ export async function getReviews(): Promise<Record<string, CashoutReview>> {
     ? (await get(ref(db, "cashoutReviews"))).val() || {}
     : structuredClone(reviewRecords);
 }
-export async function setReview(id: string, status: ReviewStatus) {
+export async function setReview(id: string, status: ReviewStatus, paidCents?: number) {
   const review: CashoutReview = {
     status,
+    ...(paidCents !== undefined ? { paidCents } : {}),
     updatedAt: Date.now(),
     updatedBy: uid(),
   };

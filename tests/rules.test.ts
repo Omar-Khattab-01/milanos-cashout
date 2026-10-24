@@ -123,6 +123,13 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
         set(ref(db("admin"), "cashoutReviews/shift"), {
           ...reviewed,
           status: "under_review",
+          paidCents: 2500,
+        }),
+      );
+      await assertFails(
+        set(ref(db("admin"), "cashoutReviews/shift"), {
+          ...reviewed,
+          status: "under_review",
         }),
       );
       await assertFails(

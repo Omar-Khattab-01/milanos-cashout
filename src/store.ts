@@ -513,9 +513,15 @@ export async function getDailySales(): Promise<Record<string, DailySales>> {
     ? (await get(ref(db, "dailySales"))).val() || {}
     : structuredClone(dailySalesRecords);
 }
-export async function saveDailySales(record: DailySales) {
-  if (db) await set(ref(db, `dailySales/${record.date}`), record);
-  else dailySalesRecords[record.date] = structuredClone(record);
+export async function saveDailySales(record: DailySales, previousDate = record.date) {
+  if (db) {
+    if (previousDate !== record.date)
+      await update(ref(db), { [`dailySales/${record.date}`]: record, [`dailySales/${previousDate}`]: null });
+    else await set(ref(db, `dailySales/${record.date}`), record);
+  } else {
+    if (previousDate !== record.date) delete dailySalesRecords[previousDate];
+    dailySalesRecords[record.date] = structuredClone(record);
+  }
 }
 export async function deleteDailySales(date: string) {
   if (db) await remove(ref(db, `dailySales/${date}`));

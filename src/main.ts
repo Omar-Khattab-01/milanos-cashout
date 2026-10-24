@@ -13,6 +13,37 @@ const esc = (value: unknown) => String(value ?? "").replace(
   /[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!,
 );
+type ConfirmDialogOptions = {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  danger?: boolean;
+};
+function confirmDialog({ title, message: dialogMessage, confirmLabel = "Confirm", cancelLabel = "Cancel", danger = false }: ConfirmDialogOptions) {
+  document.querySelector(".modal-overlay")?.remove();
+  return new Promise<boolean>((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `<section class="site-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-icon ${danger ? "danger" : ""}">${danger ? "!" : "?"}</div><div><div class="eyebrow">Please confirm</div><h2 id="modal-title">${esc(title)}</h2><p>${esc(dialogMessage)}</p></div><div class="modal-actions"><button data-modal-action="cancel">${esc(cancelLabel)}</button><button class="${danger ? "red" : "primary"}" data-modal-action="confirm">${esc(confirmLabel)}</button></div></section>`;
+    const finish = (answer: boolean) => {
+      document.removeEventListener("keydown", onKeydown);
+      overlay.remove();
+      resolve(answer);
+    };
+    const onKeydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") finish(false);
+    };
+    overlay.addEventListener("click", (event) => {
+      const action = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-modal-action]")?.dataset.modalAction;
+      if (action) finish(action === "confirm");
+      else if (event.target === overlay) finish(false);
+    });
+    document.addEventListener("keydown", onKeydown);
+    document.body.appendChild(overlay);
+    overlay.querySelector<HTMLButtonElement>('[data-modal-action="confirm"]')?.focus();
+  });
+}
 const today = () => localInput(Date.now()).slice(0, 10);
 const date = (time: number) => new Date(time).toLocaleDateString("en-CA", {
   month: "short", day: "numeric", year: "numeric",
@@ -259,7 +290,12 @@ async function offerCashFlowReturn(shift: Shift) {
   const shiftDay = localInput(shift.start).slice(0, 10);
   const openFlows = cashFlows.filter((entry) => entry.date === shiftDay && entry.employeeId === shift.employeeId && cashFlowNet(entry) > 0);
   if (!openFlows.length) return "";
-  if (!window.confirm("Did you return the cash flow to the register?")) {
+  if (!await confirmDialog({
+    title: "Was the cash flow returned?",
+    message: "Confirm whether the driver returned the starting cash to the register.",
+    confirmLabel: "Yes, returned",
+    cancelLabel: "No, not returned",
+  })) {
     return Date.now() <= shift.end
       ? "Cash-out saved. The cash flow remains with the driver during this shift."
       : "Cash-out saved. The cash flow is flagged as not returned.";
@@ -453,7 +489,7 @@ function dailySalesView() {
   const editingSale = editingDailySalesDate ? dailySales[editingDailySalesDate] : null;
   const salesValue = (value?: number) => value === undefined ? "" : (value / 100).toFixed(2);
   const formDate = editingSale?.date || today();
-  const form = `<section class="card" id="daily-sales-form"><div class="row"><div><h2>${editingSale ? `Edit sales for ${esc(editingSale.date)}` : "Daily sales reconciliation"}</h2><p class="subtle">PC sales + online orders + driver delivery pay, minus Clover gross sales, online receivables, driver cash orders, and in-store cash.</p></div>${rows.length ? `<span class="pill">Month difference: ${money(monthlyDifference)}</span>` : ""}</div><form data-form="daily-sales"><div class="fields"><div><label for="sales-date">Date</label><input id="sales-date" name="date" type="date" value="${esc(formDate)}" ${editingSale ? "readonly" : ""} required></div><div><label for="pc-sales">Milano’s PC sales</label><input id="pc-sales" name="pcSales" inputmode="decimal" placeholder="0.00" value="${salesValue(editingSale?.pcSalesCents)}" required></div><div><label for="online-orders">Online orders</label><input id="online-orders" name="onlineOrders" inputmode="decimal" placeholder="0.00" value="${salesValue(editingSale?.onlineOrdersCents)}" required></div><div><label for="clover-gross">Clover devices gross sales</label><input id="clover-gross" name="cloverGross" inputmode="decimal" placeholder="0.00" value="${salesValue(editingSale?.cloverGrossCents)}" required></div><div><label for="online-receivable">Online order receivable</label><input id="online-receivable" name="onlineReceivable" inputmode="decimal" placeholder="0.00" value="${salesValue(editingSale?.onlineReceivableCents)}" required></div></div><div class="form-actions"><button class="primary" type="submit">${editingSale ? "Update daily sales" : "Save daily sales"}</button>${editingSale ? '<button type="button" data-action="cancel-daily-sales-edit">Cancel</button>' : ""}</div><p class="subtle">${editingSale ? "Update the amounts for this date, then save your changes." : "Saving the same date updates that day."} Delivery pay, driver cash, and in-store cash are calculated automatically.</p></form></section>`;
+  const form = `<section class="card" id="daily-sales-form"><div class="row"><div><h2>${editingSale ? `Edit sales for ${esc(editingSale.date)}` : "Daily sales reconciliation"}</h2><p class="subtle">PC sales + online orders + driver delivery pay, minus Clover gross sales, online receivables, driver cash orders, and in-store cash.</p></div>${rows.length ? `<span class="pill">Month difference: ${money(monthlyDifference)}</span>` : ""}</div><form data-form="daily-sales"><div class="fields"><div><label for="sales-date">Date</label><input id="sales-date" name="date" type="date" value="${esc(formDate)}" required></div><div><label for="pc-sales">Milano’s PC sales</label><input id="pc-sales" name="pcSales" inputmode="decimal" placeholder="0.00" value="${salesValue(editingSale?.pcSalesCents)}" required></div><div><label for="online-orders">Online orders</label><input id="online-orders" name="onlineOrders" inputmode="decimal" placeholder="0.00" value="${salesValue(editingSale?.onlineOrdersCents)}" required></div><div><label for="clover-gross">Clover devices gross sales</label><input id="clover-gross" name="cloverGross" inputmode="decimal" placeholder="0.00" value="${salesValue(editingSale?.cloverGrossCents)}" required></div><div><label for="online-receivable">Online order receivable</label><input id="online-receivable" name="onlineReceivable" inputmode="decimal" placeholder="0.00" value="${salesValue(editingSale?.onlineReceivableCents)}" required></div></div><div class="form-actions"><button class="primary" type="submit">${editingSale ? "Update daily sales" : "Save daily sales"}</button>${editingSale ? '<button type="button" data-action="cancel-daily-sales-edit">Cancel</button>' : ""}</div><p class="subtle">${editingSale ? "Update the amounts or correct the date. You’ll be warned before replacing sales already saved on another date." : "Saving the same date updates that day."} Delivery pay, driver cash, and in-store cash are calculated automatically.</p></form></section>`;
   const salesTable = `<section class="card table-wrap"><h2>Daily sales for ${esc(expenseMonth)}</h2>${rows.length ? `<table><thead><tr><th>Date</th><th>PC + online</th><th>Clover</th><th>Online receivable</th><th>Delivery</th><th>Driver cash</th><th>Store cash</th><th>Difference</th><th></th></tr></thead><tbody>${rows.map(({ sale, expected, delivery, driverCash, storeCash, difference }) => `<tr><td>${esc(sale.date)}</td><td><details class="sales-breakdown"><summary>${money(expected)}</summary><div><span>PC sales <strong>${money(sale.pcSalesCents)}</strong></span><span>Online orders <strong>${money(sale.onlineOrdersCents)}</strong></span></div></details></td><td>${money(sale.cloverGrossCents)}</td><td>${money(sale.onlineReceivableCents)}</td><td>${money(delivery)}</td><td>${money(driverCash)}</td><td>${money(storeCash)}</td><td><strong class="${difference === 0 ? "balanced" : "unbalanced"}">${money(difference)}</strong></td><td><div class="table-actions"><button data-action="edit-daily-sales" data-date="${esc(sale.date)}">Edit</button><button data-action="delete-daily-sales" data-date="${esc(sale.date)}">Delete</button></div></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No daily sales entered for this month.</div>'}</section>`;
   const storeCashTable = `<section class="card table-wrap"><h2>In-store cash entries</h2>${monthStoreCash.length ? `<table><thead><tr><th>Date</th><th>Time</th><th>Bill number</th><th>Amount</th></tr></thead><tbody>${monthStoreCash.map((entry) => `<tr><td>${esc(entry.date)}</td><td>${time(entry.createdAt)}</td><td>${esc(entry.billNumber || "Not recorded")}</td><td>${money(storeCashAmount(entry))}${entry.corrections ? ' <span class="subtle">Corrected</span>' : ""}</td></tr>`).join("")}</tbody></table>` : '<div class="empty">No in-store cash entries for this month.</div>'}</section>`;
   return form + salesTable + storeCashTable;
@@ -1064,11 +1100,22 @@ root.addEventListener("submit", (event) => {
         message = `${item.name} updated.`; success = true; break;
       }
       case "daily-sales": {
-        const salesDate = editingDailySalesDate || String(data.get("date"));
+        const originalDate = editingDailySalesDate;
+        const salesDate = String(data.get("date"));
         if (!/^\d{4}-\d{2}-\d{2}$/.test(salesDate)) throw new Error("Enter the sales date.");
-        await store.saveDailySales({ date: salesDate, pcSalesCents: salesCents(String(data.get("pcSales"))), onlineOrdersCents: salesCents(String(data.get("onlineOrders"))), cloverGrossCents: salesCents(String(data.get("cloverGross"))), onlineReceivableCents: salesCents(String(data.get("onlineReceivable"))), updatedAt: Date.now(), updatedBy: store.uid() });
+        const replacingAnotherDay = Boolean(originalDate && salesDate !== originalDate && dailySales[salesDate]);
+        if (replacingAnotherDay && !await confirmDialog({
+          title: "Replace existing daily sales?",
+          message: `Sales are already saved for ${salesDate}. Continuing will replace that entry with the values from ${originalDate}.`,
+          confirmLabel: "Replace sales",
+          cancelLabel: "Keep existing",
+          danger: true,
+        })) return;
+        await store.saveDailySales({ date: salesDate, pcSalesCents: salesCents(String(data.get("pcSales"))), onlineOrdersCents: salesCents(String(data.get("onlineOrders"))), cloverGrossCents: salesCents(String(data.get("cloverGross"))), onlineReceivableCents: salesCents(String(data.get("onlineReceivable"))), updatedAt: Date.now(), updatedBy: store.uid() }, originalDate);
         dailySales = await store.getDailySales(); expenseMonth = salesDate.slice(0, 7);
-        message = editingDailySalesDate ? `Daily sales for ${salesDate} updated.` : "Daily sales saved.";
+        message = originalDate && salesDate !== originalDate
+          ? `Daily sales moved from ${originalDate} to ${salesDate}${replacingAnotherDay ? " and replaced the existing entry" : ""}.`
+          : originalDate ? `Daily sales for ${salesDate} updated.` : "Daily sales saved.";
         editingDailySalesDate = ""; success = true; break;
       }
       case "partial-payment": {
@@ -1152,7 +1199,7 @@ root.addEventListener("click", (event) => {
       case "cancel-schedule-editor": scheduleEditor = null; break;
       case "delete-schedule-shift": {
         const item = scheduledShifts[button.dataset.id!];
-        if (!item || !window.confirm(`Remove ${item.employeeName} from this shift?`)) return;
+        if (!item || !await confirmDialog({ title: "Remove scheduled shift?", message: `Remove ${item.employeeName} from this shift?`, confirmLabel: "Remove shift", danger: true })) return;
         await store.deleteScheduledShift(scheduleWeek, item.id); scheduledShifts = await store.getSchedule(scheduleWeek);
         scheduleEditor = null;
         message = "Shift removed from the schedule."; success = true; break;
@@ -1293,7 +1340,7 @@ root.addEventListener("click", (event) => {
       case "cancel-employee-edit": editingEmployeeId = ""; break;
       case "delete-employee": {
         const id = button.dataset.id!;
-        if (!window.confirm(`Delete ${roster[id].name}? Their saved history will remain.`)) return;
+        if (!await confirmDialog({ title: "Delete employee?", message: `Delete ${roster[id].name}? Their saved cash-out history will remain.`, confirmLabel: "Delete employee", danger: true })) return;
         await store.deleteEmployee(id); roster = await store.roster(); message = "Employee deleted."; success = true; break;
       }
       case "detail": editingReviewPayment = false; selected = records.find((r) => r.id === button.dataset.id)!; view = "detail"; break;
@@ -1326,7 +1373,7 @@ root.addEventListener("click", (event) => {
         break;
       }
       case "delete-shift":
-        if (!selected || !window.confirm(`Permanently delete ${current(selected).employeeName}’s shift from ${date(current(selected).start)}?`)) return;
+        if (!selected || !await confirmDialog({ title: "Delete cash-out?", message: `Permanently delete ${current(selected).employeeName}’s shift from ${date(current(selected).start)}?`, confirmLabel: "Delete cash-out", danger: true })) return;
         {
           const deleted = current(selected), deletedId = selected.id;
           await store.deleteShift(deletedId, deleted.employeeId, shiftRole(deleted));
@@ -1335,10 +1382,10 @@ root.addEventListener("click", (event) => {
         }
         break;
       case "delete-expense":
-        if (!window.confirm("Delete this order expense?")) return;
+        if (!await confirmDialog({ title: "Delete expense?", message: "This order expense will be permanently removed.", confirmLabel: "Delete expense", danger: true })) return;
         await store.deleteExpense(button.dataset.id!); expenses = await store.getExpenses(); message = "Expense deleted."; success = true; break;
       case "delete-daily-sales":
-        if (!window.confirm(`Delete daily sales for ${button.dataset.date}?`)) return;
+        if (!await confirmDialog({ title: "Delete daily sales?", message: `Permanently delete the daily sales entry for ${button.dataset.date}?`, confirmLabel: "Delete sales", danger: true })) return;
         await store.deleteDailySales(button.dataset.date!); dailySales = await store.getDailySales();
         if (editingDailySalesDate === button.dataset.date) editingDailySalesDate = "";
         message = "Daily sales deleted."; success = true; break;
@@ -1349,7 +1396,7 @@ root.addEventListener("click", (event) => {
       case "cancel-daily-sales-edit": editingDailySalesDate = ""; break;
       case "delete-inventory": {
         const item = inventory[button.dataset.id!];
-        if (!item || !window.confirm(`Delete ${item.name} from inventory?`)) return;
+        if (!item || !await confirmDialog({ title: "Delete inventory item?", message: `Permanently delete ${item.name} from inventory?`, confirmLabel: "Delete item", danger: true })) return;
         await store.deleteInventoryItem(item.id); inventory = await store.getInventory(); editingInventoryId = ""; message = "Inventory item deleted."; success = true; break;
       }
       case "edit-store-cash": editingStoreCashId = button.dataset.id!; break;

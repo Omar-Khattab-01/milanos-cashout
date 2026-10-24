@@ -397,6 +397,60 @@ td {
   padding: 40px 20px;
   color: #69756d;
 }
+.modal-overlay {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(20, 31, 25, 0.58);
+  backdrop-filter: blur(4px);
+}
+.site-modal {
+  width: min(100%, 470px);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 16px;
+  padding: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(20, 31, 25, 0.28);
+  animation: modal-in 140ms ease-out;
+}
+.site-modal h2 { margin: 4px 0 8px; }
+.site-modal p {
+  margin: 0;
+  color: #66736a;
+  line-height: 1.55;
+}
+.modal-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--green);
+  background: #e8f3ec;
+  font-size: 20px;
+  font-weight: 800;
+}
+.modal-icon.danger {
+  color: #a8382d;
+  background: #fde9e6;
+}
+.modal-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 .receipt {
   background: white;
   max-width: 360px;
@@ -620,6 +674,15 @@ a {
   margin-top: 16px;
 }
 @media (max-width: 650px) {
+  .site-modal {
+    grid-template-columns: 1fr;
+    padding: 22px;
+  }
+  .modal-actions {
+    grid-column: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
   .payment-balance { grid-template-columns: 1fr; }
   .partial-payment-form {
     align-items: stretch;

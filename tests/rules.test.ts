@@ -568,7 +568,14 @@ describe.skipIf(!process.env.FIREBASE_DATABASE_EMULATOR_HOST)(
       await assertFails(get(ref(db("kiosk"), "dailySales")));
       await assertSucceeds(set(ref(db("admin"), "dailySales/2026-09-20"), sales));
       await assertFails(set(ref(db("admin"), "dailySales/2026-09-20"), { ...sales, pcSalesCents: -1 }));
-      await assertSucceeds(remove(ref(db("admin"), "dailySales/2026-09-20")));
+      const movedSales = { ...sales, date: "2026-09-21", updatedAt: Date.now() };
+      await assertSucceeds(update(ref(db("admin")), {
+        "dailySales/2026-09-20": null,
+        "dailySales/2026-09-21": movedSales,
+      }));
+      expect((await get(ref(db("admin"), "dailySales/2026-09-20"))).exists()).toBe(false);
+      expect((await get(ref(db("admin"), "dailySales/2026-09-21"))).val()?.date).toBe("2026-09-21");
+      await assertSucceeds(remove(ref(db("admin"), "dailySales/2026-09-21")));
     });
     it("keeps opening hours and staff schedules admin-only", async () => {
       const hours = Object.fromEntries(["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((day) => [day, { closed: false, open: "11:00", close: "22:00" }]));

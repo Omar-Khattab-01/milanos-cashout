@@ -513,13 +513,19 @@ export async function getDailySales(): Promise<Record<string, DailySales>> {
     ? (await get(ref(db, "dailySales"))).val() || {}
     : structuredClone(dailySalesRecords);
 }
-export async function saveDailySales(record: DailySales, previousDate = record.date) {
+export function dailySalesMovePaths(record: DailySales, previousDate?: string) {
+  return previousDate && previousDate !== record.date
+    ? { [`dailySales/${record.date}`]: record, [`dailySales/${previousDate}`]: null }
+    : null;
+}
+export async function saveDailySales(record: DailySales, previousDate?: string) {
   if (db) {
-    if (previousDate !== record.date)
-      await update(ref(db), { [`dailySales/${record.date}`]: record, [`dailySales/${previousDate}`]: null });
+    const movePaths = dailySalesMovePaths(record, previousDate);
+    if (movePaths)
+      await update(ref(db), movePaths);
     else await set(ref(db, `dailySales/${record.date}`), record);
   } else {
-    if (previousDate !== record.date) delete dailySalesRecords[previousDate];
+    if (previousDate && previousDate !== record.date) delete dailySalesRecords[previousDate];
     dailySalesRecords[record.date] = structuredClone(record);
   }
 }

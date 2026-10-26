@@ -16,6 +16,7 @@ import {
   type Cashout,
   type Shift,
 } from "../src/model";
+import { dailySalesMovePaths } from "../src/store";
 const shift: Shift = {
   employeeId: "driver",
   employeeName: "Alex",
@@ -86,6 +87,24 @@ describe("cash-out accounting", () => {
     expect(salesCents("12345.67")).toBe(1234567);
     for (const n of ["-1", "1.005", "100000.01"])
       expect(() => salesCents(n)).toThrow();
+  });
+  it("uses a direct write for new daily sales and atomic paths only for a date move", () => {
+    const sale = {
+      date: "2026-10-25",
+      pcSalesCents: 100,
+      onlineOrdersCents: 200,
+      cloverGrossCents: 300,
+      onlineReceivableCents: 0,
+      updatedAt: 1,
+      updatedBy: "admin",
+    };
+    expect(dailySalesMovePaths(sale)).toBeNull();
+    expect(dailySalesMovePaths(sale, "")).toBeNull();
+    expect(dailySalesMovePaths(sale, sale.date)).toBeNull();
+    expect(dailySalesMovePaths(sale, "2026-10-24")).toEqual({
+      "dailySales/2026-10-25": sale,
+      "dailySales/2026-10-24": null,
+    });
   });
   it("uses the latest store-cash correction while retaining the original", () => {
     const entry = {

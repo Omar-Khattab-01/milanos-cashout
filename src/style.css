@@ -737,6 +737,7 @@ a {
   gap: 20px;
 }
 .history-shifts-table { min-width: 980px; }
+.history-money-column { white-space: nowrap; }
 .history-action-column {
   position: sticky;
   right: 0;

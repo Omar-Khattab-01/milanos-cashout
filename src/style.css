@@ -738,9 +738,15 @@ a {
 }
 .history-shifts-table { min-width: 980px; }
 .history-action-column {
+  position: sticky;
+  right: 0;
+  z-index: 2;
   width: 105px;
   min-width: 105px;
+  background: white;
+  box-shadow: -8px 0 12px -12px #536057;
 }
+th.history-action-column { z-index: 3; }
 .history-actions {
   display: inline-flex;
   align-items: center;

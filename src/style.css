@@ -736,6 +736,19 @@ a {
   min-width: 0;
   gap: 20px;
 }
+.history-shifts-table { min-width: 980px; }
+.history-action-column {
+  width: 105px;
+  min-width: 105px;
+}
+.history-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+  white-space: nowrap;
+}
+.history-actions button { flex: 0 0 auto; }
 .pending-summary {
   position: sticky;
   top: 20px;

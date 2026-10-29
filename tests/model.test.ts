@@ -89,7 +89,8 @@ describe("cash-out accounting", () => {
     for (const n of ["-1", "1.005", "100000.01"])
       expect(() => salesCents(n)).toThrow();
   });
-  it("calculates pending pay for every under-review shift", () => {
+  it("counts new shifts in full and subtracts partial payments until reviewed", () => {
+    expect(pendingReviewPay(undefined, 10000)).toBe(10000);
     expect(pendingReviewPay({ status: "under_review", paidCents: 2500, updatedAt: 1, updatedBy: "admin" }, 10000)).toBe(7500);
     expect(pendingReviewPay({ status: "under_review", updatedAt: 1, updatedBy: "admin" }, 10000)).toBe(10000);
     expect(pendingReviewPay({ status: "reviewed", paidCents: 10000, updatedAt: 1, updatedBy: "admin" }, 10000)).toBeNull();

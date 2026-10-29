@@ -209,8 +209,8 @@ export const cashFlowReturned = (entry: CashFlowEntry) =>
 export const cashFlowNet = (entry: CashFlowEntry) =>
   Math.max(0, entry.amountCents - cashFlowReturned(entry));
 export function pendingReviewPay(review: CashoutReview | undefined, totalPay: number) {
-  if (review?.status !== "under_review") return null;
-  return Math.max(totalPay - (review.paidCents ?? 0), 0);
+  if (review?.status === "reviewed") return null;
+  return Math.max(totalPay - (review?.paidCents ?? 0), 0);
 }
 export function cashTotals(s: Shift) {
   const entries = Object.values(s.cashDeliveries || {});

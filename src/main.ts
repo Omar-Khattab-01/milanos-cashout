@@ -2,7 +2,7 @@ import "./style.css";
 import * as store from "./store";
 import {
   amountOf, billNumber, billOf, cashCents, cashFlowNet, cashFlowReturned, cashTotals, cashoutAvailableOn, cashoutDate, cents, current, hours,
-  localInput, money, salesCents, storeCashAmount, total, totals, validateShift,
+  localInput, money, pendingReviewPay, salesCents, storeCashAmount, total, totals, validateShift,
   type CashDelivery, type CashFlowEntry, type Cashout, type CashoutReview, type Company, type Employee,
   type DailySales, type EmployeeRole, type EntryList, type Expense, type InventoryItem, type InventoryStatus, type InventoryTag, type OpeningHours, type ReviewStatus,
   type PublishedSchedule, type RegisterCash, type ScheduledShift, type Shift, type StoreCashEntry,
@@ -435,9 +435,7 @@ function reviewBadge(id: string) {
 }
 
 function pendingPay(id: string, totalPay: number) {
-  const review = reviews[id];
-  if (review?.status !== "under_review" || review.paidCents === undefined) return null;
-  return Math.max(totalPay - review.paidCents, 0);
+  return pendingReviewPay(reviews[id], totalPay);
 }
 
 function cashFlowBadge(shift: Shift) {
@@ -454,7 +452,20 @@ function historyView() {
   const filtered = records.filter((r) => (!filterEmployee || current(r).employeeId === filterEmployee) && (!filterDate || localInput(current(r).start).slice(0, 10) === filterDate));
   const filteredFlows = cashFlows.filter((entry) => (!filterEmployee || entry.employeeId === filterEmployee) && (!filterDate || entry.date === filterDate));
   const flowHistory = `<section class="card table-wrap"><h2>Driver cash-flow history</h2><p class="subtle">Every amount taken and put back remains recorded.</p>${filteredFlows.length ? `<table><thead><tr><th>Date / time</th><th>Driver</th><th>Taken</th><th>Put back</th><th>Remaining</th></tr></thead><tbody>${filteredFlows.map((entry) => `<tr><td>${esc(entry.date)}<br><span class="subtle">${time(entry.createdAt)}</span></td><td><strong>${esc(entry.employeeName)}</strong></td><td>${money(entry.amountCents)}</td><td>${cashFlowReturned(entry) ? `${money(cashFlowReturned(entry))}<br><span class="subtle">${Object.values(entry.returns || {}).map((item) => time(item.returnedAt)).join(", ")}</span>` : "—"}</td><td><strong>${money(cashFlowNet(entry))}</strong></td></tr>`).join("")}</tbody></table>` : '<div class="empty">No driver cash-flow records match these filters.</div>'}</section>`;
-  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Cash-out history</h1><span class="subtle">Review, correct, reprint, or delete saved shifts.</span></div><button data-action="load-all">Load all history</button></div><div class="toolbar"><select id="filter-employee"><option value="">All employees</option>${Object.entries(roster).map(([id, e]) => `<option value="${esc(id)}" ${filterEmployee === id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select><input id="filter-date" type="date" value="${filterDate}"><button data-action="clear-filters">Clear filters</button></div><section class="card table-wrap"><p class="subtle">${records.length} loaded · ${filtered.length} matching shifts.</p>${filtered.length ? `<table><thead><tr><th>Employee / date</th><th>Review status</th><th>Pending pay</th><th>Driver cash</th><th>Hours</th><th>Total pay</th><th>Cash owed</th><th></th></tr></thead><tbody>${filtered.map((r) => { const s = current(r), t = totals(s), status = reviewState(r.id), pending = pendingPay(r.id, t.total); return `<tr><td><strong>${esc(s.employeeName)}</strong><br><span class="subtle">${roleName(shiftRole(s))} · ${date(s.start)}${r.corrections ? " · Corrected" : ""}</span></td><td>${reviewBadge(r.id)}</td><td>${status === "under_review" ? pending === null ? '<span class="subtle">Not recorded</span>' : `<strong class="pending-pay">${money(pending)}</strong>` : "—"}</td><td>${cashFlowBadge(s)}</td><td>${hours(t.minutes)}</td><td><strong>${money(t.total)}</strong></td><td>${shiftRole(s) === "driver" ? money(cashTotals(s).owed) : "—"}</td><td><div class="row"><button data-action="detail" data-id="${r.id}">View</button>${status === "reviewed" ? '<span class="review-check" aria-label="Reviewed">✓</span>' : ""}</div></td></tr>`; }).join("")}</tbody></table>` : '<div class="empty">No cash-outs found.</div>'}</section>${flowHistory}`;
+  const pendingByEmployee = new Map(Object.entries(roster).map(([id, employee]) => [id, { name: employee.name, amount: 0, shifts: 0 }]));
+  for (const record of records) {
+    const shift = current(record), amount = pendingPay(record.id, totals(shift).total);
+    if (amount === null) continue;
+    const employee = pendingByEmployee.get(shift.employeeId) || { name: shift.employeeName, amount: 0, shifts: 0 };
+    employee.amount += amount;
+    employee.shifts += 1;
+    pendingByEmployee.set(shift.employeeId, employee);
+  }
+  const pendingStaff = [...pendingByEmployee.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const totalPending = pendingStaff.reduce((sum, employee) => sum + employee.amount, 0);
+  const pendingSummary = `<aside class="card pending-summary"><div class="pending-summary-head"><div><div class="eyebrow">Payroll</div><h2>Pending pay</h2></div><strong>${money(totalPending)}</strong></div><p class="subtle">All Under Review shifts are included. Partial payments are deducted automatically.</p><div class="pending-staff-list">${pendingStaff.map((employee) => `<div class="pending-staff"><div><strong>${esc(employee.name)}</strong><span>${employee.shifts ? `${employee.shifts} shift${employee.shifts === 1 ? "" : "s"} under review` : "No shifts pending"}</span></div><strong class="${employee.amount ? "pending-pay" : ""}">${money(employee.amount)}</strong></div>`).join("") || '<div class="empty">No employees found.</div>'}</div></aside>`;
+  const shiftHistory = `<section class="card table-wrap"><p class="subtle">${records.length} loaded · ${filtered.length} matching shifts.</p>${filtered.length ? `<table><thead><tr><th>Employee / date</th><th>Review status</th><th>Pending pay</th><th>Driver cash</th><th>Hours</th><th>Total pay</th><th>Cash owed</th><th></th></tr></thead><tbody>${filtered.map((r) => { const s = current(r), t = totals(s), status = reviewState(r.id), pending = pendingPay(r.id, t.total); return `<tr><td><strong>${esc(s.employeeName)}</strong><br><span class="subtle">${roleName(shiftRole(s))} · ${date(s.start)}${r.corrections ? " · Corrected" : ""}</span></td><td>${reviewBadge(r.id)}</td><td>${status === "under_review" ? `<strong class="pending-pay">${money(pending || 0)}</strong>` : "—"}</td><td>${cashFlowBadge(s)}</td><td>${hours(t.minutes)}</td><td><strong>${money(t.total)}</strong></td><td>${shiftRole(s) === "driver" ? money(cashTotals(s).owed) : "—"}</td><td><div class="row"><button data-action="detail" data-id="${r.id}">View</button>${status === "reviewed" ? '<span class="review-check" aria-label="Reviewed">✓</span>' : ""}</div></td></tr>`; }).join("")}</tbody></table>` : '<div class="empty">No cash-outs found.</div>'}</section>`;
+  return `<div class="intro"><div><div class="eyebrow">Management</div><h1>Cash-out history</h1><span class="subtle">Review, correct, reprint, or delete saved shifts.</span></div><button data-action="load-all">Refresh history</button></div><div class="toolbar"><select id="filter-employee"><option value="">All employees</option>${Object.entries(roster).map(([id, e]) => `<option value="${esc(id)}" ${filterEmployee === id ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select><input id="filter-date" type="date" value="${filterDate}"><button data-action="clear-filters">Clear filters</button></div><div class="history-layout"><div class="history-main">${shiftHistory}${flowHistory}</div>${pendingSummary}</div>`;
 }
 
 function employeeView() {
@@ -845,7 +856,7 @@ async function afterLogin() {
   admin = true;
   roster = await store.roster();
   try { rates = await store.getRates(); } catch { rates = { driver: 1300, cook: 1300, cashier: 1300 }; }
-  if (loginTarget === "history") [records, reviews, cashFlows] = await Promise.all([store.history(), store.getReviews(), store.getCashFlows()]);
+  if (loginTarget === "history") [records, reviews, cashFlows] = await Promise.all([store.allHistory(), store.getReviews(), store.getCashFlows()]);
   if (loginTarget === "expenses") [records, companies, expenses, storeCashEntries, dailySales, monthlyRentCents] = await Promise.all([store.allHistory(), store.getCompanies(), store.getExpenses(), store.getStoreCash(), store.getDailySales(), store.getMonthlyRent()]);
   if (loginTarget === "inventory") [inventory, inventoryTags] = await Promise.all([store.getInventory(), store.getInventoryTags()]);
   if (loginTarget === "schedule") {
@@ -1265,7 +1276,7 @@ root.addEventListener("click", (event) => {
         submittedDraftEnd = 0;
         pending = null;
         break;
-      case "back-history": editingReviewPayment = false; [records, reviews] = await Promise.all([store.history(), store.getReviews()]); view = "history"; break;
+      case "back-history": editingReviewPayment = false; [records, reviews] = await Promise.all([store.allHistory(), store.getReviews()]); view = "history"; break;
       case "authorize-device": await store.authorizeDevice(); message = "This store computer is authorized for driver cash-outs."; success = true; break;
       case "done": {
         const kind = button.dataset.kind as ListKind;
@@ -1300,7 +1311,7 @@ root.addEventListener("click", (event) => {
         if (editId) {
           if (!reason.trim()) throw new Error("Enter a reason for the correction.");
           await store.correct(editId, { ...s, reason: reason.trim(), editedAt: Date.now(), editedBy: store.uid() });
-          records = await store.history(); selected = records.find((r) => r.id === editId) || null; editId = ""; view = "detail";
+          records = await store.allHistory(); selected = records.find((r) => r.id === editId) || null; editId = ""; view = "detail";
         } else if (submittedDraftId) {
           const recordId = submittedDraftId;
           const submittedRecord = await store.getCashout(recordId);
@@ -1378,7 +1389,7 @@ root.addEventListener("click", (event) => {
           const deleted = current(selected), deletedId = selected.id;
           await store.deleteShift(deletedId, deleted.employeeId, shiftRole(deleted));
           removeSubmittedDraft(deleted.employeeId, deletedId);
-          records = await store.history(); selected = null; view = "history"; message = "Shift deleted."; success = true;
+          records = await store.allHistory(); selected = null; view = "history"; message = "Shift deleted."; success = true;
         }
         break;
       case "delete-expense":

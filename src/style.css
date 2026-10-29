@@ -725,6 +725,55 @@ a {
   color: #8a5700;
 }
 .pending-pay { color: #9c3d32; }
+.history-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  align-items: start;
+  gap: 20px;
+}
+.history-main {
+  display: grid;
+  min-width: 0;
+  gap: 20px;
+}
+.pending-summary {
+  position: sticky;
+  top: 20px;
+  padding: 20px;
+}
+.pending-summary-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.pending-summary-head > strong {
+  color: #9c3d32;
+  font-size: 22px;
+}
+.pending-staff-list {
+  display: grid;
+  margin-top: 16px;
+}
+.pending-staff {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #e8ece7;
+}
+.pending-staff:last-child { border-bottom: 0; }
+.pending-staff > div { min-width: 0; }
+.pending-staff span {
+  display: block;
+  margin-top: 2px;
+  color: #778078;
+  font-size: 12px;
+}
+.pending-staff > strong { white-space: nowrap; }
 .payment-balance {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1360,6 +1409,8 @@ a {
   margin: 24px;
 }
 @media (max-width: 800px) {
+  .history-layout { grid-template-columns: 1fr; }
+  .pending-summary { position: static; order: -1; }
   .expense-grid {
     grid-template-columns: 1fr;
   }

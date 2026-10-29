@@ -725,6 +725,7 @@ a {
   color: #8a5700;
 }
 .pending-pay { color: #9c3d32; }
+main:has(.history-layout) { max-width: 1500px; }
 .history-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 280px;
@@ -736,7 +737,21 @@ a {
   min-width: 0;
   gap: 20px;
 }
-.history-shifts-table { min-width: 980px; }
+.history-shifts-table {
+  min-width: 900px;
+  table-layout: fixed;
+}
+.history-shifts-table th:nth-child(1) { width: 170px; }
+.history-shifts-table th:nth-child(2) { width: 120px; }
+.history-shifts-table th:nth-child(3) { width: 90px; }
+.history-shifts-table th:nth-child(4) { width: 145px; }
+.history-shifts-table th:nth-child(5) { width: 65px; }
+.history-shifts-table th:nth-child(6),
+.history-shifts-table th:nth-child(7) { width: 90px; }
+.history-shifts-table .cash-flow-status {
+  width: auto;
+  white-space: normal;
+}
 .history-money-column { white-space: nowrap; }
 .history-action-column {
   position: sticky;
@@ -794,6 +809,10 @@ th.history-action-column { z-index: 3; }
   font-size: 12px;
 }
 .pending-staff > strong { white-space: nowrap; }
+@media (max-width: 1250px) {
+  .history-layout { grid-template-columns: minmax(0, 1fr); }
+  .pending-summary { position: static; }
+}
 .payment-balance {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

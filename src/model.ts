@@ -380,6 +380,9 @@ export function current(c: Cashout): Shift {
   );
   return corrections[0] || c;
 }
+export function newestShiftFirst(a: Cashout, b: Cashout) {
+  return current(b).start - current(a).start || b.createdAt - a.createdAt;
+}
 export function localInput(time: number) {
   const date = new Date(time);
   return new Date(time - date.getTimezoneOffset() * 60000)

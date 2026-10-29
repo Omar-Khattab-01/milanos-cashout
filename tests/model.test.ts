@@ -10,6 +10,7 @@ import {
   cashoutDate,
   cashoutMatchesDate,
   pendingReviewPay,
+  newestShiftFirst,
   billNumber,
   totals,
   current,
@@ -64,6 +65,25 @@ describe("cash-out accounting", () => {
     expect(cashoutDate(cashout)).toBe("2026-10-20");
     expect(cashoutMatchesDate(cashout, "driver", "driver", "2026-10-20")).toBe(true);
     expect(cashoutMatchesDate(cashout, "driver", "driver", "2026-10-21")).toBe(false);
+  });
+  it("sorts history by the effective shift date instead of entry time", () => {
+    const october26: Cashout = {
+      ...shift,
+      id: "october-26",
+      start: Date.parse("2026-10-26T17:00:00-04:00"),
+      end: Date.parse("2026-10-26T21:00:00-04:00"),
+      createdBy: "admin",
+      createdAt: 300,
+    };
+    const october28: Cashout = {
+      ...shift,
+      id: "october-28",
+      start: Date.parse("2026-10-28T17:00:00-04:00"),
+      end: Date.parse("2026-10-28T21:00:00-04:00"),
+      createdBy: "kiosk",
+      createdAt: 100,
+    };
+    expect([october26, october28].sort(newestShiftFirst).map((item) => item.id)).toEqual(["october-28", "october-26"]);
   });
   it("keeps cash-flow withdrawals and returns auditable", () => {
     const flow = {

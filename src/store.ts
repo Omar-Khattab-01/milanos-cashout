@@ -19,7 +19,7 @@ import {
   orderByChild,
   limitToLast,
 } from "firebase/database";
-import { cashoutDate, cashoutMatchesDate } from "./model";
+import { cashoutDate, cashoutMatchesDate, newestShiftFirst } from "./model";
 import type {
   ActiveCashoutLink,
   Cashout,
@@ -287,15 +287,11 @@ export async function history(): Promise<Cashout[]> {
         )
       ).val() || {}
     : records;
-  return (Object.values(value) as Cashout[]).sort(
-    (a, b) => b.createdAt - a.createdAt,
-  );
+  return (Object.values(value) as Cashout[]).sort(newestShiftFirst);
 }
 export async function allHistory(): Promise<Cashout[]> {
   const value = db ? (await get(ref(db, "cashouts"))).val() || {} : records;
-  return (Object.values(value) as Cashout[]).sort(
-    (a, b) => b.createdAt - a.createdAt,
-  );
+  return (Object.values(value) as Cashout[]).sort(newestShiftFirst);
 }
 export async function findCashoutByDate(
   employeeId: string,
